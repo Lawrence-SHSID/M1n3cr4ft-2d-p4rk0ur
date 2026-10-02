@@ -1,6 +1,7 @@
 import type { BlockKind, CharacterId, GameState, Player, PlayerRun } from '../../shared/types'
 import { blockPosition, blockSize } from './physics'
 import { WalkingParticles } from './particles'
+import { SharedCamera } from './camera'
 
 const colors: Record<BlockKind, string> = { grass: '#8aaa5c', dirt: '#856243', stone: '#91958c', wood: '#846840', leaf: '#446a32', slime: '#85c759' }
 type Sprite = { image: HTMLImageElement; sx?: number; sy?: number; sw?: number; sh?: number }
@@ -23,6 +24,8 @@ export class Renderer {
   private dpr = 1
   private dust = new WalkingParticles()
   private lastWorldTime: number | null = null
+  private sharedCamera = new SharedCamera()
+  private lastDrawTime: number | null = null
   constructor(private canvas: HTMLCanvasElement) { this.ctx = canvas.getContext('2d')! }
   async load() {
     await Promise.all(['grass', 'dirt', 'stone', 'slime', 'tree'].map(async name => {
@@ -45,10 +48,11 @@ export class Renderer {
     this.tile = this.nominalTile
     this.configuredLevel = 0
     this.cameraSnap = true
+    this.sharedCamera.reset()
     this.baseY = this.height - this.tile * 11.7
     this.originY = this.baseY
   }
-  resetCamera() { this.camera = 0; this.cameraLift = 0; this.configuredLevel = 0; this.cameraSnap = true; this.dust.reset(); this.lastWorldTime = null }
+  resetCamera() { this.camera = 0; this.cameraLift = 0; this.configuredLevel = 0; this.cameraSnap = true; this.dust.reset(); this.lastWorldTime = null; this.sharedCamera.reset(); this.lastDrawTime = null }
   private rect(x: number, y: number, w: number, h: number, fill: string) { this.ctx.fillStyle = fill; this.ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)) }
   private cloud(x: number, y: number, scale: number, opacity: number) {
     this.ctx.save(); this.ctx.globalAlpha = opacity
@@ -153,28 +157,46 @@ export class Renderer {
       }
       this.configuredLevel = game.level.number
     }
-    const ctx = this.ctx, w = this.width, h = this.height, t = this.tile
-    const snap = this.cameraSnap || Math.abs(game.player.x - this.lastPlayerX) > 4.5 || Math.abs(game.player.y - this.lastPlayerY) > 2.5
-    // Follow boosted jumps upward so Steve stays visible at the five-block apex.
-    const lift = flight ? 0 : Math.max(0, Math.min(215, h * .4) - (this.baseY + game.player.y * t))
-    this.cameraLift = snap ? lift : this.cameraLift + (lift - this.cameraLift) * .16
-    this.originY = this.baseY + this.cameraLift
+    const ctx = this.ctx, w = this.width, h = this.height
+    const dt = this.lastDrawTime === null ? 0 : Math.min(.1, Math.max(0, (now - this.lastDrawTime) / 1000))
+    this.lastDrawTime = now
+    let ox: number
+    if (actors.length > 1) {
+      const subjects = actors.map(actor => {
+        if (actor.state.status !== 'dead') return { player: actor.state.player, status: actor.state.status }
+        const saved = actor.id === character ? (game.level.checkpoints ?? []).find(cp => cp.id === options.checkpointId) : options.companions?.find(run => run.id === actor.id)?.checkpoint
+        const spawn = saved ?? actor.state.level.spawn
+        return { player: { ...actor.state.player, x: spawn.x, y: spawn.y - actor.state.player.height }, status: 'playing' as const, predicted: true }
+      })
+      // Prepare for a fallen player's respawn during their recovery delay.
+      const shared = this.sharedCamera.update(game.level, subjects, w, h, this.nominalTile, dt)
+      this.tile = shared.tile; this.originY = shared.originY; ox = shared.originX
+      this.camera = -ox / this.tile
+    } else {
+      const t = this.tile
+      const snap = this.cameraSnap || Math.abs(game.player.x - this.lastPlayerX) > 4.5 || Math.abs(game.player.y - this.lastPlayerY) > 2.5
+      const lift = flight ? 0 : Math.max(0, Math.min(215, h * .4) - (this.baseY + game.player.y * t))
+      this.cameraLift = snap ? lift : this.cameraLift + (lift - this.cameraLift) * .16
+      this.originY = this.baseY + this.cameraLift
+      const visible = w / t, centerOffset = Math.max(1.1, (visible - game.level.length) / 2)
+      const target = Math.max(0, Math.min(game.level.length - visible + 2.2, game.player.x - visible * .36))
+      this.camera = snap ? Math.max(0, target) : this.camera + (Math.max(0, target) - this.camera) * .10
+      ox = (game.level.length < visible - 2 ? centerOffset : 1.1) * t - this.camera * t
+    }
+    const t = this.tile
+    this.cameraSnap = false; this.lastPlayerX = game.player.x; this.lastPlayerY = game.player.y
     ctx.clearRect(0, 0, w, h)
     const sky = ctx.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, flight ? '#dfe6f4' : '#d8eee6'); sky.addColorStop(.7, flight ? '#e9ebf4' : '#e6f1e4'); sky.addColorStop(1, flight ? '#f3efdf' : '#f1f3d8')
     ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h)
-    const visible = w / t, centerOffset = Math.max(1.1, (visible - game.level.length) / 2)
-    const target = Math.max(0, Math.min(game.level.length - visible + 2.2, game.player.x - visible * .36))
-    this.camera = snap ? Math.max(0, target) : this.camera + (Math.max(0, target) - this.camera) * .10
-    this.cameraSnap = false; this.lastPlayerX = game.player.x; this.lastPlayerY = game.player.y
-    const ox = (game.level.length < visible - 2 ? centerOffset : 1.1) * t - this.camera * t
+    const visible = w / t
     // Clouds and distant islands drift slowly behind the fixed, uneditable course.
     for (let i = 0; i < 7; i++) {
-      const x = ((i * 237 + w - this.camera * t * .18 + now * .003) % (w + 190)) - 110
+      const x = (((i * 237 + w - this.camera * t * .18 + now * .003) % (w + 190) + w + 190) % (w + 190)) - 110
       this.cloud(x, 55 + (i * 73) % 190, .6 + (i % 3) * .3, .52 + (i % 2) * .2)
     }
     ctx.save(); ctx.globalAlpha = .17
     for (let i = 0; i < 5; i++) {
-      const x = ((i * 340 + 70 - this.camera * t * .1) % (w + 230)) - 100
+      const x = (((i * 340 + 70 - this.camera * t * .1) % (w + 230) + w + 230) % (w + 230)) - 100
       const y = h * .77 + (i % 3) * 19
       this.rect(x, y, 145, 9, '#7fa893'); this.rect(x + 12, y + 9, 120, 22, '#9fb3a0'); this.rect(x + 31, y + 31, 70, 14, '#9fb3a0')
       this.rect(x + 94, y - 25, 6, 25, '#7fa893'); this.rect(x + 81, y - 39, 32, 21, '#7fa893')
@@ -225,17 +247,19 @@ export class Renderer {
     for (const [index, checkpoint] of (game.level.checkpoints ?? []).entries()) {
       const x = ox + (checkpoint.x + (flight ? .55 : .24)) * t, y = this.originY + (checkpoint.y - (flight ? .3 : 0)) * t
       if (x < -t || x > w + t) continue
-      const active = options.checkpointId === checkpoint.id
+      const savedBy = [options.checkpointId === checkpoint.id ? character : null, ...(options.companions ?? []).filter(run => run.checkpoint?.id === checkpoint.id).map(run => run.id)].filter(Boolean)
+      const active = savedBy.length > 0
+      const checkpointLabel = `${active ? '✓ ' : ''}CP ${index + 1}${actors.length > 1 && active ? ` · ${savedBy.map(id => id === 'steve' ? 'S' : 'A').join('+')}` : ''}`
       if (flight) {
         ctx.save(); ctx.strokeStyle = active ? '#59a788' : '#88baad'; ctx.lineWidth = 3; ctx.setLineDash(active ? [] : [5, 5])
         ctx.beginPath(); ctx.ellipse(x, y, t * .46, t * 1.05, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore()
-        this.label(`${active ? '✓ ' : ''}CP ${index + 1}`, x, y - t * 1.2, '#518b75', '#f3fff3')
+        this.label(checkpointLabel, x, y - t * 1.2, '#518b75', '#f3fff3')
         continue
       }
       this.rect(x - 2, y - t * 1.2, 4, t * 1.2, '#7e8c74')
       this.rect(x + 2, y - t * 1.15, t * .42, t * .34, active ? '#54a583' : '#80b8ab')
       this.rect(x - t * .22, y - 3, t * .44, 4, active ? '#6dbb8b' : '#b1d7bd')
-      this.label(`${active ? '✓ ' : ''}CP ${index + 1}`, x + 5, y - t * 1.42, '#518b75', '#f3fff3')
+      this.label(checkpointLabel, x + 5, y - t * 1.42, '#518b75', '#f3fff3')
     }
     const flagX = ox + game.level.flag.x * t, flagY = this.originY + game.level.flag.y * t
     this.rect(flagX - 3, flagY - t * 1.63, 5, t * 1.63, '#7c6c52')
@@ -243,7 +267,7 @@ export class Renderer {
     const wave = Math.round(Math.sin(now * .005) * 3)
     ctx.fillStyle = '#dc6350'; ctx.beginPath(); ctx.moveTo(flagX + 2, flagY - t * 1.56); ctx.lineTo(flagX + t * .63, flagY - t * 1.56 + wave); ctx.lineTo(flagX + t * .49, flagY - t * 1.34 + wave); ctx.lineTo(flagX + t * .63, flagY - t * 1.12 + wave); ctx.lineTo(flagX + 2, flagY - t * 1.12); ctx.closePath(); ctx.fill()
     this.rect(flagX + 3, flagY - t * 1.56, 4, t * .44, '#b74839')
-    if (game.status === 'ready') this.label('FINISH', flagX + 10, flagY - t * 1.72, '#99774d', '#fff8e6')
+    if (game.status === 'ready') this.label('FINISH', flagX + 10, Math.max(16, flagY - t * 1.72), '#99774d', '#fff8e6')
     // Small pixel particles around the boost and finish.
     if (game.status === 'won') for (let i = 0; i < 32; i++) {
       const age = (now * .0003 + i * .071) % 1

@@ -107,7 +107,7 @@ for (const boost of [false, true]) {
         && state.player.x <= nextGate.x + nextGate.width!; frame++) {
         const feet = state.player.y + state.player.height
         const targetVelocity = Math.max(-3.5, Math.min(3.5, 2 * (targetFeet - feet)))
-        const climb = state.player.vy > targetVelocity
+        const climb: boolean = state.player.vy > targetVelocity
         if (first) assert.equal(climb, !fromTop, 'immediate recovery releases lift below upper columns and lifts above lower columns')
         first = false
         stepGame(state, { left: false, right: boost, jump: climb }, 1 / 120)

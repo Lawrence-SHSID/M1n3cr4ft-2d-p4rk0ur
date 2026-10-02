@@ -10,15 +10,12 @@ import { GameAudio } from './game/audio'
 
 interface RunnerView { id: CharacterId; name: string; status: GameStatus; progress: number; checkpoint: number; deaths: number }
 const canvas = ref<HTMLCanvasElement>()
-const alexCanvas = ref<HTMLCanvasElement>()
 const loading = ref(true), loadError = ref(''), apiConnected = ref(false)
 const helpOpen = ref(false), sound = ref(false), attempts = ref(1)
 const mode = ref<GameMode>('solo')
 const checkpointNotice = ref('')
 const highestLevel = ref(Number(localStorage.getItem('skybound.highest')) || 1)
 const view = ref({ status: 'ready' as GameStatus, level: 1, length: 10, name: 'First flight', subtitle: '', elapsed: 0, progress: 0, slime: false, deathReason: '', mode: 'walk', checkpoint: 0, checkpointTotal: 0, flight: false, runners: [] as RunnerView[] })
-const steveView = computed(() => view.value.runners.find(run => run.id === 'steve'))
-const alexView = computed(() => view.value.runners.find(run => run.id === 'alex'))
 const levelLabel = computed(() => String(view.value.level).padStart(2, '0'))
 const featuredCourses = [...Array.from({ length: 12 }, (_, index) => index + 1), 20, 30]
 const courseOptions = ref(featuredCourses.map(number => {
@@ -26,6 +23,9 @@ const courseOptions = ref(featuredCourses.map(number => {
   return { number: level.number, name: level.name, length: level.length }
 }))
 const timer = computed(() => `${String(Math.floor(view.value.elapsed / 60)).padStart(2, '0')}:${String(Math.floor(view.value.elapsed % 60)).padStart(2, '0')}`)
+const canvasLabel = computed(() => view.value.flight
+  ? mode.value === 'duo' ? 'Shared elytra flight. Steve uses up and right; Alex uses W and D. Hold lift to rise and release to descend.' : 'Steve elytra flight. Hold up or W to rise, right or D to boost. Release lift to descend.'
+  : mode.value === 'duo' ? 'Shared parkour map. Steve uses arrows, Alex uses WASD. Double-tap a direction to sprint. The camera smoothly fits both players.' : 'Steve parkour map. Use arrows or WASD to move, jump and crouch. Double-tap a direction to sprint.')
 const blocks = [
   { kind: 'grass', name: 'Grass', description: 'The surface of your floating islands.' },
   { kind: 'dirt', name: 'Dirt', description: 'The earthy foundation below the grass.' },
@@ -44,7 +44,7 @@ function freshSession(level: Level, gameMode: GameMode) {
   return created
 }
 let controls = new KeyboardControls('solo')
-let renderer: Renderer | null = null, alexRenderer: Renderer | null = null
+let renderer: Renderer | null = null
 let frame = 0, previousTime = 0, accumulator = 0, noticeRemaining = 0
 let resizeObserver: ResizeObserver | undefined
 let pausedForHelp = false
@@ -65,7 +65,7 @@ function sync() {
 }
 function clearInput() { controls.clear() }
 function focusGame() { canvas.value?.focus({ preventScroll: true }) }
-function resetCameras() { renderer?.resetCamera(); alexRenderer?.resetCamera() }
+function resetCameras() { renderer?.resetCamera() }
 async function loadLevel(number: number) {
   loading.value = true; clearInput(); checkpointNotice.value = ''
   if (session?.status === 'playing') session.status = 'paused'
@@ -85,7 +85,7 @@ async function setMode(value: GameMode) {
   if (mode.value === value || !session || loading.value) return
   mode.value = value; controls = new KeyboardControls(value)
   session = freshSession(session.level, value); attempts.value = 1; checkpointNotice.value = ''; resetCameras(); sync()
-  await nextTick(); renderer?.resize(); alexRenderer?.resize()
+  await nextTick(); renderer?.resize()
 }
 function play() {
   if (!session || loading.value || helpOpen.value) return
@@ -116,7 +116,7 @@ function keydown(event: KeyboardEvent) {
   if (event.code === 'Escape') { event.preventDefault(); helpOpen.value ? closeHelp() : pause(); return }
   if (helpOpen.value || loading.value) return
   if (event.code === 'KeyR' && !event.repeat) { event.preventDefault(); retry(); return }
-  if (event.code === 'Space') { if (event.target === canvas.value || event.target === alexCanvas.value) event.preventDefault(); return }
+  if (event.code === 'Space') { if (event.target === canvas.value) event.preventDefault(); return }
   const actor = controls.press(event.code, event.repeat, performance.now())
   if (!actor) return
   event.preventDefault(); if (session?.status === 'ready') play()
@@ -152,17 +152,15 @@ function animate(now: number) {
     }
     const steve = session.runs[0]!
     renderer?.draw(steve.state, now, { character: 'steve', companions: session.runs.filter(run => run.id !== 'steve'), checkpointId: steve.checkpoint?.id, worldTime: session.time, active: session.status === 'playing' })
-    const alex = session.runs.find(run => run.id === 'alex')
-    if (mode.value === 'duo' && alex) alexRenderer?.draw(alex.state, now, { character: 'alex', companions: [steve], checkpointId: alex.checkpoint?.id, worldTime: session.time, active: session.status === 'playing' })
     sync()
   } else accumulator = 0
   frame = requestAnimationFrame(animate)
 }
 onMounted(async () => {
-  renderer = new Renderer(canvas.value!); alexRenderer = new Renderer(alexCanvas.value!)
-  resizeObserver = new ResizeObserver(() => { renderer?.resize(); if (mode.value === 'duo') alexRenderer?.resize() })
-  resizeObserver.observe(canvas.value!); resizeObserver.observe(alexCanvas.value!)
-  try { await Promise.all([renderer.load(), alexRenderer.load()]) } catch { loadError.value = 'Some block textures could not load. Refresh to try again.' }
+  renderer = new Renderer(canvas.value!)
+  resizeObserver = new ResizeObserver(() => renderer?.resize())
+  resizeObserver.observe(canvas.value!)
+  try { await renderer.load() } catch { loadError.value = 'Some block textures could not load. Refresh to try again.' }
   renderer.resize(); await loadLevel(1); frame = requestAnimationFrame(animate)
   window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur)
 })
@@ -183,16 +181,15 @@ onUnmounted(() => { cancelAnimationFrame(frame); resizeObserver?.disconnect(); w
         <div class="adventure-badge"><Icon name="leaf" :size="17" /><span>Small blocks.<br /><strong>Big adventures.</strong></span></div>
       </section>
 
-      <div class="play-options"><div class="mode-toggle" aria-label="Game mode"><button :class="{ active: mode === 'solo' }" :aria-pressed="mode === 'solo'" @click="setMode('solo')" :disabled="loading">Solo adventure</button><button :class="{ active: mode === 'duo' }" :aria-pressed="mode === 'duo'" @click="setMode('duo')" :disabled="loading">Two players</button></div><span>{{ mode === 'duo' ? 'Local co-op · one keyboard, two adventurers' : view.flight ? 'Elytra flight · hold ↑ to lift, → for speed' : 'Double-tap left or right to sprint' }}</span></div>
+      <div class="play-options"><div class="mode-toggle" aria-label="Game mode"><button :class="{ active: mode === 'solo' }" :aria-pressed="mode === 'solo'" @click="setMode('solo')" :disabled="loading">Solo adventure</button><button :class="{ active: mode === 'duo' }" :aria-pressed="mode === 'duo'" @click="setMode('duo')" :disabled="loading">Two players</button></div><span>{{ mode === 'duo' ? 'Local co-op · one map, two adventurers' : view.flight ? 'Elytra flight · hold ↑ to lift, → for speed' : 'Double-tap left or right to sprint' }}</span></div>
       <section :class="['game-card', { flight: view.flight }]" aria-label="Skybound game">
         <div class="game-topbar">
           <div class="level-info course-picker"><span class="level-number">{{ levelLabel }}</span><div><span class="level-kicker">{{ view.flight ? 'ELYTRA' : 'LEVEL' }} {{ levelLabel }} <span>·</span> {{ view.length }} BLOCKS</span><h2>{{ view.name }} <Icon name="chevron" :size="12" /></h2></div><select :value="view.level" @change="chooseCourse" aria-label="Choose a course" title="Choose a course" :disabled="loading"><option v-for="course in courseOptions" :key="course.number" :value="course.number">{{ String(course.number).padStart(2, '0') }} / {{ course.name }} · {{ course.length }} blocks</option></select></div>
           <div class="game-actions"><span class="timer" aria-label="Time played"><Icon name="clock" :size="16" />{{ timer }}</span><span class="toolbar-divider"></span><button class="icon-button" @click="restartCourse" aria-label="Restart course" title="Restart course from the beginning" :disabled="loading"><Icon name="reset" :size="18" /></button><button class="icon-button" @click="pause" :aria-label="view.status === 'paused' ? 'Resume game' : 'Pause game'" title="Pause / resume (Esc)" :disabled="!['playing', 'paused'].includes(view.status)"><Icon :name="view.status === 'paused' ? 'play' : 'pause'" :size="18" /></button></div>
         </div>
 
-        <div :class="['canvas-wrap', { duo: mode === 'duo' }]">
-          <div class="player-viewport"><span v-if="mode === 'duo'" class="pane-label steve"><span></span>STEVE <span class="pane-keys">{{ view.flight ? '↑ LIFT · → BOOST' : '↑ ↓ ← →' }}</span></span><canvas ref="canvas" tabindex="0" :aria-label="view.flight ? 'Steve elytra flight. Hold up arrow to rise, right arrow to speed up. Release to descend.' : 'Steve parkour view. Left and right move, up jumps, down crouches. Double-tap a direction to sprint.'" @pointerdown="focusGame"></canvas><div v-if="mode === 'duo' && steveView?.status === 'dead'" class="runner-message">Steve is respawning{{ steveView.checkpoint ? ` at checkpoint ${steveView.checkpoint}` : ' at the start' }}…</div><div v-else-if="mode === 'duo' && steveView?.status === 'won' && view.status === 'playing'" class="runner-message finished"><Icon name="check" :size="15" />Steve reached the flag. Go, Alex!</div></div>
-          <div v-show="mode === 'duo'" class="player-viewport"><span class="pane-label alex"><span></span>ALEX <span class="pane-keys">{{ view.flight ? 'W LIFT · D BOOST' : 'W A S D' }}</span></span><canvas ref="alexCanvas" tabindex="0" :aria-label="view.flight ? 'Alex elytra flight. Hold W to rise, D to speed up. Release to descend.' : 'Alex parkour view. A and D move, W jumps, S crouches. Double-tap A or D to sprint.'" @pointerdown="alexCanvas?.focus({ preventScroll: true })"></canvas><div v-if="alexView?.status === 'dead'" class="runner-message">Alex is respawning{{ alexView.checkpoint ? ` at checkpoint ${alexView.checkpoint}` : ' at the start' }}…</div><div v-else-if="alexView?.status === 'won' && view.status === 'playing'" class="runner-message finished"><Icon name="check" :size="15" />Alex reached the flag. Go, Steve!</div><span v-if="view.status === 'playing'" class="pane-guide">{{ view.flight ? 'Hold W to lift · hold D to boost · release to dive' : 'W jump · S crouch · double-tap A / D to sprint' }}</span></div>
+        <div class="canvas-wrap">
+          <div class="player-viewport"><div v-if="mode === 'duo'" class="shared-labels"><span class="pane-label steve"><span></span>STEVE <span class="pane-keys">{{ view.flight ? '↑ →' : '↑ ↓ ← →' }}</span></span><span class="pane-label alex"><span></span>ALEX <span class="pane-keys">{{ view.flight ? 'W D' : 'W A S D' }}</span></span></div><canvas ref="canvas" tabindex="0" :aria-label="canvasLabel" @pointerdown="focusGame"></canvas><div v-if="mode === 'duo' && view.status === 'playing'" class="runner-messages"><template v-for="run in view.runners" :key="run.id"><div v-if="run.status === 'dead'" class="runner-message">{{ run.name }} is respawning{{ run.checkpoint ? ` at checkpoint ${run.checkpoint}` : ' at the start' }}…</div><div v-else-if="run.status === 'won'" class="runner-message finished"><Icon name="check" :size="15" />{{ run.name }} reached the flag. Waiting for {{ run.id === 'steve' ? 'Alex' : 'Steve' }}!</div></template></div></div>
           <div :class="['stage-tag', { 'duo-hint': mode === 'duo' }]"><span class="status-dot"></span>{{ view.status === 'ready' ? mode === 'duo' ? 'Same sky. Two adventurers. Reach the flag together.' : view.subtitle : view.status === 'playing' ? view.flight ? 'Hold ↑ to lift. Release to descend. → boosts speed.' : view.slime ? 'Slime underfoot. Jump 5 blocks!' : view.mode === 'sneak' ? 'Slow steps. Safe edges.' : view.mode === 'sprint' ? 'Pick up speed. Jump the gap!' : 'Keep going. You’ve got this.' : view.status === 'won' ? 'A little leap, a big win.' : view.status === 'dead' ? 'Every fall is a fresh start.' : 'Take a little breather.' }}</div>
           <div v-if="checkpointNotice" class="checkpoint-notice"><Icon name="flag" :size="13" />{{ checkpointNotice }}</div>
           <div v-if="loading" class="game-overlay"><div class="overlay-card"><span class="loading-cube"></span><h3>Building your little adventure…</h3></div></div>
@@ -207,7 +204,7 @@ onUnmounted(() => { cancelAnimationFrame(frame); resizeObserver?.disconnect(); w
             </div>
           </div>
           <div v-if="view.status === 'ready' && !loading" class="start-prompt"><div><span class="start-star">✦</span><span>{{ mode === 'duo' ? 'A little adventure, together.' : 'Your adventure starts here.' }}</span></div><button class="primary-button" @click="play">{{ view.flight ? 'Let’s fly' : 'Let’s jump' }} <Icon name="right" :size="17" /></button></div>
-          <div v-else-if="view.status === 'playing'" class="in-game-hint"><span v-if="view.flight">Hold ↑ to lift · → to boost · release to descend</span><span v-else-if="view.slime">✦ A little extra bounce. Press ↑{{ mode === 'solo' ? ' or W' : '' }}.</span><span v-else>Double-tap ← / → to sprint <span class="hint-dot">·</span> ↑ jump <span class="hint-dot">·</span> ↓ crouch</span></div>
+          <div v-else-if="view.status === 'playing'" class="in-game-hint"><span v-if="view.flight">Hold ↑{{ mode === 'duo' ? ' / W' : '' }} to lift · →{{ mode === 'duo' ? ' / D' : '' }} to boost · release to descend</span><span v-else-if="view.slime">✦ A little extra bounce. Press ↑{{ mode === 'solo' ? ' or W' : '' }}.</span><span v-else>Double-tap a direction to sprint <span class="hint-dot">·</span> ↑{{ mode === 'duo' ? ' / W' : '' }} jump <span class="hint-dot">·</span> ↓{{ mode === 'duo' ? ' / S' : '' }} crouch</span></div>
           <div class="course-length"><Icon name="flag" :size="14" /><span>{{ view.length }} blocks of possibility</span></div>
         </div>
 
@@ -227,6 +224,6 @@ onUnmounted(() => { cancelAnimationFrame(frame); resizeObserver?.disconnect(); w
       <footer><span>A blocky little escape. Made for the joy of the jump.</span><span><span class="status-dot"></span>{{ apiConnected ? 'Adventure service connected' : 'Playing locally' }} <span class="footer-dot">·</span> {{ highestLevel > 1 ? `Best adventure: level ${highestLevel - 1}` : 'No building. Just exploring.' }}</span></footer>
     </main>
 
-    <div v-if="helpOpen" class="modal-backdrop" @click.self="closeHelp"><section class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title"><button class="modal-close icon-button" @click="closeHelp" aria-label="Close how to play"><Icon name="close" /></button><span class="eyebrow">A FIELD GUIDE FOR LITTLE ADVENTURERS</span><h2 id="help-title">A few tips before you leap.</h2><p class="help-intro">{{ mode === 'duo' ? 'Get Steve and Alex to the red flag, together.' : 'Your only job? Get Steve to the red flag.' }}</p><div class="help-row"><span>01</span><div><h3>Walk, then jump.</h3><p>Steve uses ← / → to move, ↑ to jump, and ↓ to crouch. In two-player mode Alex uses A / D to move, W to jump, and S to crouch. In solo, either set of keys controls Steve. Double-tap and hold left or right to sprint; normal sprint jumps clear gaps up to four blocks.</p></div></div><div class="help-row"><span>02</span><div><h3>Slime gives you a little lift.</h3><p>Stand on a green slime block and jump to reach five blocks high. Use it to reach the higher islands.</p></div></div><div class="help-row"><span>03</span><div><h3>Catch a ride. Mind your landing.</h3><p>Stone slabs carry you sideways or up and down. Hold ↓ for Steve or S for Alex to crouch: move slowly and stay safely on platform edges. You can still jump while crouching. Spikes and falling end that player’s attempt. In co-op they respawn while their friend keeps going.</p></div></div><div class="help-row"><span>04</span><div><h3>Every tenth course, take flight.</h3><p>Levels 10, 20, 30, and every following multiple of 10 are elytra flights. Steve glides forward automatically: hold ↑ to rise, hold → to fly faster, and release ↑ to descend. In co-op, Alex uses W to rise and D to boost. Fly between the stone gates and stay inside the flight corridor.</p></div></div><div class="help-row"><span>05</span><div><h3>Leave the world as you found it.</h3><p>On courses longer than 45 blocks, save your place at cyan checkpoint flags — fly through the rings in elytra courses. R retries from saved checkpoints; the reset button starts the whole course again. In co-op, both players must finish. Choose a course from the level title. Esc pauses both players. Blocks cannot be edited.</p></div></div><button class="primary-button" @click="closeHelp">Got it. Let’s go <Icon name="right" :size="18" /></button></section></div>
+    <div v-if="helpOpen" class="modal-backdrop" @click.self="closeHelp"><section class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title"><button class="modal-close icon-button" @click="closeHelp" aria-label="Close how to play"><Icon name="close" /></button><span class="eyebrow">A FIELD GUIDE FOR LITTLE ADVENTURERS</span><h2 id="help-title">A few tips before you leap.</h2><p class="help-intro">{{ mode === 'duo' ? 'Get Steve and Alex to the red flag, together.' : 'Your only job? Get Steve to the red flag.' }}</p><div class="help-row"><span>01</span><div><h3>Walk, then jump.</h3><p>Steve uses ← / → to move, ↑ to jump, and ↓ to crouch. In two-player mode Alex uses A / D to move, W to jump, and S to crouch. In solo, either set of keys controls Steve. Double-tap and hold left or right to sprint; normal sprint jumps clear gaps up to four blocks.</p></div></div><div class="help-row"><span>02</span><div><h3>Slime gives you a little lift.</h3><p>Stand on a green slime block and jump to reach five blocks high. Use it to reach the higher islands.</p></div></div><div class="help-row"><span>03</span><div><h3>Catch a ride. Mind your landing.</h3><p>Stone slabs carry you sideways or up and down. Hold ↓ for Steve or S for Alex to crouch: move slowly and stay safely on platform edges. You can still jump while crouching. Spikes and falling end that player’s attempt. In co-op they respawn while their friend keeps going.</p></div></div><div class="help-row"><span>04</span><div><h3>Every tenth course, take flight.</h3><p>Levels 10, 20, 30, and every following multiple of 10 are elytra flights. Steve glides forward automatically: hold ↑ to rise, hold → to fly faster, and release ↑ to descend. In co-op, Alex uses W to rise and D to boost. Fly between the stone gates and stay inside the flight corridor.</p></div></div><div class="help-row"><span>05</span><div><h3>Leave the world as you found it.</h3><p>On courses longer than 45 blocks, save your place at cyan checkpoint flags — fly through the rings in elytra courses. R retries from saved checkpoints; the reset button starts the whole course again. In co-op, both players must finish. The shared map smoothly zooms in when you meet and out when you separate. Choose a course from the level title. Esc pauses both players. Blocks cannot be edited.</p></div></div><button class="primary-button" @click="closeHelp">Got it. Let’s go <Icon name="right" :size="18" /></button></section></div>
   </div>
 </template>

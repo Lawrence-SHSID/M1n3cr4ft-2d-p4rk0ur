@@ -15,7 +15,7 @@ Open **http://localhost:5175**. Vite runs on port 5175 and proxies the Node leve
 
 ## Modes and controls
 
-Choose **Solo adventure** or **Two players** above the game. Multiplayer is local co-op on one keyboard, with separate cameras so each player can explore independently.
+Choose **Solo adventure** or **Two players** above the game. Multiplayer is local co-op on one keyboard, on one shared map. The camera smoothly zooms in when Steve and Alex are close and out when they separate, following both players horizontally and vertically. It also keeps a finished player in view while their partner catches up.
 
 | Character | Move | Jump | Crouch | Sprint |
 | --- | --- | --- | --- | --- |
@@ -37,7 +37,7 @@ In co-op, both players must reach the red finish flag. A player who touches spik
 
 Level 1 spans 10 blocks; each level adds 5: `10 + 5 × (level − 1)`. The first six authored courses feature sprint gaps, forest stepping stones, slab ferries, stairs, and slime climbs. Later courses mix seeded terrain motifs through level 1000. The course selector offers the first twelve courses plus flight courses 20 and 30 directly.
 
-Cyan checkpoint flags appear **only on courses longer than 45 blocks**, starting at **level 9, which is 50 blocks long**. They are placed on safe static grass islands, or in clear air on elytra routes, near twenty-block intervals. Land beside a checkpoint flag or glide through a cyan ring to save it; later checkpoints replace earlier ones independently for Steve and Alex. Solo retries and co-op respawns use the saved flag. The camera snaps to the respawn position. Your highest completed level is saved in the browser.
+Cyan checkpoint flags appear **only on courses longer than 45 blocks**, starting at **level 9, which is 50 blocks long**. They are placed on safe static grass islands, or in clear air on elytra routes, near twenty-block intervals. Land beside a checkpoint flag or glide through a cyan ring to save it; later checkpoints replace earlier ones independently for Steve and Alex. Solo retries and co-op respawns use the saved flag. The shared camera prepares for each player’s respawn location while they recover; solo retries snap to the saved position. Your highest completed level is saved in the browser.
 
 ## Elytra flight courses
 
@@ -45,7 +45,7 @@ Cyan checkpoint flags appear **only on courses longer than 45 blocks**, starting
 
 Steve wears elytra and glides forward automatically, in a horizontal flying pose. **Hold ↑ to rise, hold → to move faster, and release ↑ to descend.** Gravity and lift change vertical speed smoothly. Left, crouch, and double-tap sprint are not needed in flight. In local co-op, Alex also flies, using **W for lift** and **D for speed**. Both still need to reach the red finish flag.
 
-Steer through alternating stone gates, keeping clear of the top and bottom flight boundaries. Gate or boundary contact ends the attempt. Cyan airborne rings save personal checkpoints and respawn the character safely in open air. Hold-to-lift and hold-to-boost buttons are also available in solo. The flight camera shows the whole vertical corridor.
+Steer through alternating stone gates, keeping clear of the top and bottom flight boundaries. Gate or boundary contact ends the attempt. Cyan airborne rings save personal checkpoints and respawn the character safely in open air. Hold-to-lift and hold-to-boost buttons are also available in solo. The flight camera keeps the vertical corridor visible and smoothly zooms out when co-op players separate.
 
 ## Build and run the Node server
 
