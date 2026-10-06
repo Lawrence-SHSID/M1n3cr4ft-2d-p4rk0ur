@@ -24,7 +24,7 @@ test('PK starts both players at the same safe line across all dimensions and fli
     const session = createSession(generateLevel(number), 'duo', 'pk')
     assert.equal(session.multiplayerMode, 'pk')
     assert.equal(session.result, null)
-    assert.deepEqual(session.runs[0]!.state.player, session.runs[1]!.state.player)
+    assert.deepEqual({ ...session.runs[0]!.state.player, skin: undefined }, { ...session.runs[1]!.state.player, skin: undefined })
     assert.equal(session.runs[0]!.state.player.x, session.level.spawn.x)
   }
   const solo = createSession(course(), 'solo', 'pk')
@@ -105,7 +105,7 @@ test('PK retry clears the previous result; a fresh rematch clears both personal 
   assert.equal(rematch.result, null)
   assert.equal(rematch.elapsed, 0)
   assert.ok(rematch.runs.every(run => run.checkpoint === null))
-  assert.deepEqual(rematch.runs[0]!.state.player, rematch.runs[1]!.state.player)
+  assert.deepEqual({ ...rematch.runs[0]!.state.player, skin: undefined }, { ...rematch.runs[1]!.state.player, skin: undefined })
 })
 
 test('PK flight names the first pilot across the flag without waiting for the second', () => {

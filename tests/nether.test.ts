@@ -214,8 +214,18 @@ function completeNether(number: number) {
       else islands.push({ start: surface.x, end: surface.x + (surface.width ?? 1) })
     }
     if (direction < 0) islands.reverse()
+    const fightOn = (island: { start: number; end: number }) => {
+      const skeleton = session.combat?.skeleton
+      if (!skeleton || skeleton.hearts === 0 || skeleton.x < island.start || skeleton.x >= island.end
+        || Math.abs(skeleton.y + skeleton.height - rows[row]!) > 1e-7) return
+      const center = skeleton.x + skeleton.width / 2
+      advanceUntil(() => skeleton.hearts === 0, () => ({ ...IDLE, attack: true,
+        right: state.player.x + state.player.width / 2 < center - .1,
+        left: state.player.x + state.player.width / 2 > center + .1 }), 'defeat the mid-course bonus skeleton')
+    }
     for (let index = 1; index < islands.length && state.status === 'playing'; index++) {
       const current = islands[index - 1]!, next = islands[index]!
+      fightOn(current)
       const launch = direction > 0 ? current.end - 0.05 : current.start - state.player.width + 0.05
       const target = direction > 0 ? next.start + 0.1 : next.end - state.player.width - 0.1
       walkTo(launch)
@@ -225,6 +235,7 @@ function completeNether(number: number) {
           left: direction < 0 && state.player.x > target, sprint: true, jump: frame === 0 }),
         `jump ${direction > 0 ? 'right' : 'left'} across row ${row}`)
     }
+    fightOn(islands.at(-1)!)
     if (row < ladders.length && state.status === 'playing') {
       const ladder = ladders[row]!
       walkTo(ladder.x + 0.1)

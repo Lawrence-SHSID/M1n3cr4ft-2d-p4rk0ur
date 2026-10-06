@@ -8,6 +8,7 @@ const palettes: Record<BlockKind, string[]> = {
   leaf: ['#799b4f', '#a4b56d'], slime: ['#8bc854', '#b4db7b'], ice: ['#a7c9fa', '#c4e3ff', '#ffffff'],
   netherrack: ['#733d38', '#9b6159', '#4c201f'], 'nether-brick': ['#512826', '#7a4140', '#361616'],
   'end-stone': ['#e2e6ac', '#c6cb91', '#f1f4bf'], purpur: ['#b18bb8', '#cbabcd', '#8b638f'],
+  scaffolding: ['#ba9147', '#ecd18b'],
 }
 
 /** Footstep crumbs live in world coordinates, so cameras never drag their trail. */

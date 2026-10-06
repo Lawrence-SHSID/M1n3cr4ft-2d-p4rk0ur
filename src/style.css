@@ -107,6 +107,9 @@ canvas { display: block; width: 100%; height: 100%; outline: none; }
 .runner-progress .alex { color: #aa885f; }
 .runner-progress small { font-size: 9px; opacity: .8; }
 .checkpoint-help { display: flex; gap: 9px; align-items: center; margin: 14px 2px 0; color: #84a18a; font-size: 10px; line-height: 1.6; }
+.bonus-guide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 14px 0; padding: 14px 18px; background: #edf0e5; border: 1px solid #dce4cf; border-radius: 10px; color: #55715a; font-size: 12px; }
+.bonus-guide strong { color: #805344; }
+.bonus-attack { touch-action: none; margin-left: auto; padding: 10px 16px; background: #405d45; color: #fff8e6; border: 0; border-radius: 7px; font-weight: 700; }
 .flight .level-number { background: #eaeaf5; border-color: #e1e3ee; color: #848bb0; }
 .flight .primary-button { background: #626d8b; box-shadow: 0 2px 0 #495672; }
 .flight .primary-button:hover { background: #75809e; }
@@ -210,3 +213,20 @@ footer .status-dot { width: 4px; height: 4px; opacity: .6; }
 .multiplayer-options > span { color: #78896f; font-size: 11px; line-height: 1.5; }
 .mode-toggle button.pk.active { color: #775083; background: #f5ecfa; }
 .rematch-button { margin: 15px auto 0; justify-content: center; font-size: 12px; }
+.appearance-panel { display: grid; gap: 12px; padding: 15px 18px; margin: 0 0 16px; background: #f0f3e9; border: 1px solid #e2e7d9; border-radius: 12px; }
+.horse-hint { margin: 0; color: #76836c; font-size: 11px; line-height: 1.6; }
+.horse-notice { margin: 0; padding: 9px 12px; color: #634525; background: #fff1cb; border-radius: 7px; font-size: 12px; line-height: 1.6; }
+.menu-shop-button { display: block; width: 100%; margin: 14px 0 0; border: 1px solid #e2d29c77; border-radius: 8px; padding: 11px 18px; color: #f6df91; background: #273a29d9; font: inherit; font-size: 13px; cursor: pointer; }
+.coin-nav { color: #91702b !important; white-space: nowrap; }
+.shop-page { padding: 36px 0 65px; }
+.shop-wallet { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 24px 0; padding: 20px; background: #fbf0d0; border: 1px solid #e6d39c; border-radius: 12px; color: #765721; }
+.shop-wallet strong { font-size: 24px; }.shop-wallet > span:last-child { margin-left: auto; font-size: 12px; }
+.coin-icon { color: #d4a03d; font-size: 31px; text-shadow: 2px 2px #a5712b; }
+.shop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.shop-card { display: flex; flex-direction: column; align-items: flex-start; padding: 26px; border: 1px solid #e1e7da; border-radius: 15px; background: #fffef8; }
+.shop-card h2 { font-size: 20px; margin: 16px 0 8px; }.shop-card p { color: #79866f; font-size: 13px; line-height: 1.7; flex: 1; }
+.shop-item-icon { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 12px; background: #efe1b8; font-size: 36px; color: #94723c; }.shop-item-icon.teleport { background: #def1e9; color: #308b81; }.shop-item-icon.potion { background: #f9e6e2; color: #c76255; }
+.shop-owned { font-size: 12px; color: #87917c; margin: 15px 0; }.shop-card button { width: 100%; justify-content: center; }
+.shop-message { min-height: 20px; color: #74835d; }.shop-rewards { margin-top: 25px; padding: 22px; background: #f0f3e9; border-radius: 12px; }.shop-rewards h2 { font-size: 18px; }.shop-rewards p { font-size: 13px; line-height: 1.8; color: #6e7b63; }
+.item-bag { margin: 0 0 16px; padding: 14px 18px; border: 1px solid #e5ddc0; border-radius: 12px; background: #fcf7e8; }.bag-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; }.bag-heading > span { color: #9a752d; }.bag-heading label { margin-left: auto; }.bag-heading select { color: #52644b; background: #fffef6; border: 1px solid #d9dccb; border-radius: 5px; padding: 4px; }.bag-items { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }.bag-items > button { color: #687051; background: #fffef8; border: 1px solid #dfdec8; border-radius: 7px; padding: 8px 11px; font-size: 12px; cursor: pointer; }.bag-items > button[aria-pressed='true'] { border-color: #699452; background: #eaf0d8; }.bag-items > button:disabled { opacity: .45; cursor: default; }.item-aim-hint,.item-feedback { font-size: 12px; line-height: 1.65; color: #737b59; margin: 10px 0 0; }.coin-reward { margin: 15px 0; padding: 14px 18px; color: #8b6726; background: #fcf0c9; border: 1px solid #e8d497; border-radius: 10px; font-size: 14px; font-weight: 700; }.aiming-item { cursor: crosshair; }
+@media(max-width:700px) { .shop-grid { grid-template-columns: 1fr; }.shop-card { padding: 20px; }.site-header { gap: 16px; }.site-header nav { gap: 12px; }.coin-nav { font-size: 11px; }.shop-wallet > span:last-child { margin-left: 0; } }

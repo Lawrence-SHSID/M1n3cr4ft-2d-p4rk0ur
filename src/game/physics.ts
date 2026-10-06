@@ -1,5 +1,6 @@
 import type { Block, GameState, Input, Level } from '../../shared/types'
 import { FLIGHT, stepFlight } from './flight'
+import { HORSE, type Appearance } from './appearance'
 
 export const PHYSICS = Object.freeze({
   gravity: 28,
@@ -38,13 +39,14 @@ export function blockPosition(block: Block, time: number): { x: number; y: numbe
 }
 
 /** player.x/y are its top-left; spawn.x is its left edge and spawn.y is its feet. */
-export function createGame(level: Level): GameState {
+export function createGame(level: Level, appearance: Appearance = {}): GameState {
   const flying = level.kind === 'elytra'
-  const width = flying ? FLIGHT.playerWidth : PHYSICS.playerWidth
-  const height = flying ? FLIGHT.playerHeight : PHYSICS.playerHeight
+  const width = flying ? FLIGHT.playerWidth : appearance.horse ? HORSE.width : PHYSICS.playerWidth
+  const height = flying ? FLIGHT.playerHeight : appearance.horse ? HORSE.height : PHYSICS.playerHeight
   const state: GameState = {
     level,
     player: {
+      ...appearance,
       x: level.spawn.x, y: level.spawn.y - height,
       vx: flying ? FLIGHT.speed : 0, vy: 0, width, height,
       grounded: false, groundKind: null, groundId: null, facing: 1, walkTime: 0,
@@ -52,6 +54,7 @@ export function createGame(level: Level): GameState {
     },
     status: 'ready', time: 0, elapsed: 0, deathReason: null, jumps: 0,
     coyote: 0, jumpBuffer: 0, jumpWasPressed: false,
+    ...(level.bonus ? { combat: { hearts: 20, attackCooldown: 0, swing: 0, knockbackRemaining: 0, knockbackDirection: 1 as const }, goalUnlocked: false } : {}),
   }
   if (flying) return state
   const ground = level.blocks.find(block => {
@@ -124,13 +127,14 @@ function advance(state: GameState, input: Input, dt: number): void {
   // Crouching changes the hitbox around the feet. Releasing crouch only stands
   // when the larger body fits, so a low slab ceiling cannot trap the player.
   const feet = player.y + player.height
-  const standingY = feet - PHYSICS.playerHeight
+  const standingHeight = player.horse ? HORSE.height : PHYSICS.playerHeight
+  const standingY = feet - standingHeight
   const canStand = !blocks.some(item =>
     overlaps(player.x, player.x + player.width, item.x, item.x + item.width)
       && overlaps(standingY, feet, item.y, item.y + item.height))
   player.sneaking = (!player.climbing && Boolean(input.sneak)) || !canStand
   if (!canStand) player.climbing = false
-  player.height = player.sneaking ? PHYSICS.crouchHeight : PHYSICS.playerHeight
+  player.height = player.sneaking ? player.horse ? HORSE.crouchHeight : PHYSICS.crouchHeight : standingHeight
   player.y = feet - player.height
 
   if (player.climbing) {
@@ -139,7 +143,7 @@ function advance(state: GameState, input: Input, dt: number): void {
     player.iceMomentum = false
   }
   if (!player.climbing && state.jumpBuffer > 0 && (wasGrounded || state.coyote > 0)) {
-    const jumpHeight = player.groundKind === 'slime' ? PHYSICS.slimeJumpHeight : PHYSICS.normalJumpHeight
+    const jumpHeight = player.groundKind === 'slime' ? PHYSICS.slimeJumpHeight : player.horse ? HORSE.jumpHeight : PHYSICS.normalJumpHeight
     player.vy = -Math.sqrt(2 * PHYSICS.gravity * jumpHeight)
     player.grounded = false
     player.groundId = null
@@ -150,7 +154,7 @@ function advance(state: GameState, input: Input, dt: number): void {
 
   const direction = Number(input.right) - Number(input.left)
   player.sprinting = Boolean(input.sprint) && !player.sneaking && !player.climbing && direction !== 0
-  const speed = player.climbing ? PHYSICS.climbSpeed : player.sneaking ? PHYSICS.sneakSpeed : player.sprinting ? PHYSICS.sprintSpeed : PHYSICS.speed
+  const speed = player.climbing ? PHYSICS.climbSpeed : player.sneaking ? PHYSICS.sneakSpeed : player.horse ? PHYSICS.sprintSpeed * HORSE.speedMultiplier : player.sprinting ? PHYSICS.sprintSpeed : PHYSICS.speed
   // Ice carries momentum through release and jumps. Other surfaces restore grip.
   // Crouching brakes immediately and retains the normal edge protection.
   if (wasGrounded && !player.climbing) player.iceMomentum = supporting?.block.kind === 'ice'
@@ -161,11 +165,21 @@ function advance(state: GameState, input: Input, dt: number): void {
     const difference = direction * speed - player.vx
     player.vx += Math.sign(difference) * Math.min(Math.abs(difference), acceleration * dt)
   } else player.vx = direction * speed
+  // Arrow knockback overrides walking for exactly the requested displacement.
+  // Use the usual collision resolver; walls can stop the push and edges cannot.
+  const pushing = Boolean(state.combat && state.combat.knockbackRemaining > EPSILON)
+  if (pushing && state.combat) {
+    const distance = Math.min(state.combat.knockbackRemaining, 6 * dt)
+    player.vx = state.combat.knockbackDirection * distance / dt
+    state.combat.knockbackRemaining -= distance
+    player.sprinting = false
+    player.climbing = false
+  }
   if (direction !== 0) player.facing = direction > 0 ? 1 : -1
   const previousX = player.x
   player.x += player.vx * dt
 
-  if (player.sneaking && player.grounded) {
+  if (player.sneaking && player.grounded && !pushing) {
     const protectedX = protectEdge(previousX, player.x, player.width, player.y + player.height, blocks)
     if (Math.abs(protectedX - player.x) > EPSILON) player.vx = 0
     player.x = protectedX
@@ -235,13 +249,15 @@ function advance(state: GameState, input: Input, dt: number): void {
   state.time = nextTime
   state.elapsed += dt
 
-  if (state.level.spikes.some(spike => touchesSpikes(player, spike.x, spike.y))) {
+  if (state.level.spikes.some(spike => touchesSpikes(player, spike.x, spike.y))
+    || state.level.hazards?.some(hazard => overlaps(player.x, player.x + player.width, hazard.x, hazard.x + hazard.width)
+      && overlaps(player.y, player.y + player.height, hazard.y, hazard.y + hazard.height))) {
     state.status = 'dead'
     state.deathReason = 'spike'
   } else if (player.y > PHYSICS.voidY) {
     state.status = 'dead'
     state.deathReason = 'void'
-  } else if (Math.abs(player.x + player.width / 2 - state.level.flag.x) <= 0.7
+  } else if ((!state.level.bonus || state.goalUnlocked) && Math.abs(player.x + player.width / 2 - state.level.flag.x) <= 0.7
     && Math.abs(player.y + player.height - state.level.flag.y) <= 0.65) {
     state.status = 'won'
   }

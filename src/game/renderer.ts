@@ -1,16 +1,18 @@
-import type { BlockKind, CharacterId, GameState, Player, PlayerRun } from '../../shared/types'
+import type { BlockKind, CharacterId, CombatState, GameState, Player, PlayerRun, SkinId } from '../../shared/types'
 import { blockPosition, blockSize } from './physics'
 import { WalkingParticles } from './particles'
 import { SharedCamera } from './camera'
 
-const colors: Record<BlockKind, string> = { grass: '#8aaa5c', dirt: '#856243', stone: '#91958c', wood: '#846840', leaf: '#446a32', slime: '#85c759', ice: '#a7c9fa', netherrack: '#79443e', 'nether-brick': '#4a2222', 'end-stone': '#dce29e', purpur: '#af88b3' }
+const colors: Record<BlockKind, string> = { grass: '#8aaa5c', dirt: '#856243', stone: '#91958c', wood: '#846840', leaf: '#446a32', slime: '#85c759', ice: '#a7c9fa', netherrack: '#79443e', 'nether-brick': '#4a2222', 'end-stone': '#dce29e', purpur: '#af88b3', scaffolding: '#e7c77b' }
 type Sprite = { image: HTMLImageElement; sx?: number; sy?: number; sw?: number; sh?: number }
-interface RenderOptions { character?: CharacterId; companions?: PlayerRun[]; checkpointId?: string | null; worldTime?: number; active?: boolean }
+interface RenderOptions { character?: CharacterId; companions?: PlayerRun[]; checkpointId?: string | null; worldTime?: number; active?: boolean; combat?: CombatState; itemTarget?: { x: number; y: number; valid: boolean; block: boolean } }
 export class Renderer {
   private ctx: CanvasRenderingContext2D
   private textures: Partial<Record<BlockKind, Sprite>> = {}
   private netherBackground: HTMLImageElement | null = null
   private endBackground: HTMLImageElement | null = null
+  private skeletonImage: HTMLImageElement | null = null
+  private skins: Partial<Record<SkinId, HTMLImageElement>> = {}
   private width = 1000
   private height = 510
   private camera = 0
@@ -18,6 +20,7 @@ export class Renderer {
   private nominalTile = 64
   private configuredLevel = 0
   private originY = -170
+  private originX = 0
   private baseY = -170
   private cameraLift = 0
   private cameraSnap = true
@@ -30,14 +33,19 @@ export class Renderer {
   private lastDrawTime: number | null = null
   constructor(private canvas: HTMLCanvasElement) { this.ctx = canvas.getContext('2d')! }
   async load() {
-    await Promise.all(['grass', 'dirt', 'stone', 'slime', 'ice', 'tree', 'netherrack', 'nether-brick', 'nether-background', 'end-stone', 'purpur', 'end-background'].map(async name => {
-      const image = new Image(); image.src = `/textures/${name}.png`; await image.decode()
+    await Promise.all(['grass', 'dirt', 'stone', 'slime', 'ice', 'tree', 'netherrack', 'nether-brick', 'nether-background', 'end-stone', 'purpur', 'end-background', 'skeleton'].map(async name => {
+      const image = new Image(); image.src = `/textures/${name === 'skeleton' ? 'skeleton-cutout' : name}.png`; await image.decode()
       if (name === 'nether-background') this.netherBackground = image
       else if (name === 'end-background') this.endBackground = image
+      else if (name === 'skeleton') this.skeletonImage = image
       else if (name === 'tree') {
         this.textures.wood = { image, sx: 229, sy: 216, sw: 28, sh: 28 }
         this.textures.leaf = { image, sx: 200, sy: 157, sw: 28, sh: 28 }
       } else this.textures[name as BlockKind] = { image }
+    }))
+    await Promise.all(['dream', 'skeppy'].map(async name => {
+      const image = new Image(); image.src = `/skins/${name}-sheet.png`; await image.decode()
+      this.skins[name as SkinId] = image
     }))
   }
   resize() {
@@ -57,6 +65,11 @@ export class Renderer {
     this.originY = this.baseY
   }
   resetCamera() { this.camera = 0; this.cameraLift = 0; this.configuredLevel = 0; this.cameraSnap = true; this.dust.reset(); this.lastWorldTime = null; this.sharedCamera.reset(); this.lastDrawTime = null }
+  worldPoint(clientX: number, clientY: number) {
+    const bounds = this.canvas.getBoundingClientRect()
+    return { x: ((clientX - bounds.left) * this.width / bounds.width - this.originX) / this.tile,
+      y: ((clientY - bounds.top) * this.height / bounds.height - this.originY) / this.tile }
+  }
   private rect(x: number, y: number, w: number, h: number, fill: string) { this.ctx.fillStyle = fill; this.ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)) }
   private cloud(x: number, y: number, scale: number, opacity: number) {
     this.ctx.save(); this.ctx.globalAlpha = opacity
@@ -71,6 +84,13 @@ export class Renderer {
     const ctx = this.ctx, sprite = this.textures[kind]
     const w = size * width, h = size * height
     ctx.save(); ctx.globalAlpha = alpha
+    if (kind === 'scaffolding') {
+      this.rect(x, y, w, h, '#e7c77b')
+      this.rect(x + size * .1, y + size * .15, w - size * .2, h - size * .22, '#b29257')
+      this.rect(x + size * .1, y + size * .45, w - size * .2, size * .08, '#f4d893')
+      this.rect(x, y, w, size * .12, '#f4d893'); this.rect(x + size * .45, y, size * .1, h, '#dfb660')
+      ctx.restore(); return
+    }
     this.rect(x, y, w, h, colors[kind])
     if (sprite) {
       for (let column = 0; column < width; column++) for (let row = 0; row < height; row++) {
@@ -84,7 +104,7 @@ export class Renderer {
     ctx.restore()
   }
   private character(p: Player, id: CharacterId, ox: number) {
-    const ctx = this.ctx, t = this.tile, alex = id === 'alex'
+    const ctx = this.ctx, t = this.tile, skinId = p.skin ?? id, alex = skinId === 'alex'
     const skin = alex ? '#dfb18c' : '#bc8d70', hair = alex ? '#b56636' : '#46372e'
     const shirt = alex ? '#85a760' : '#40a4aa', darkShirt = alex ? '#607b46' : '#2e868e'
     const x = ox + (p.x + p.width / 2) * t, feet = this.originY + (p.y + p.height) * t
@@ -93,6 +113,15 @@ export class Renderer {
     const legTop = p.sneaking ? -12 : -16, torsoTop = p.sneaking ? -22 : -29
     const torsoHeight = p.sneaking ? 10 : 14, headTop = p.sneaking ? -32 : -40
     ctx.save(); ctx.translate(Math.round(x), Math.round(feet)); ctx.scale(p.facing * u, u)
+    if (p.horse) {
+      if (p.sneaking) ctx.scale(1, .75)
+      this.horse(p)
+      ctx.translate(0, -23); ctx.scale(.68, .68)
+    }
+    if (this.skins[skinId]) {
+      this.skinSprite(skinId, stride, p.sneaking, Boolean(p.horse))
+      ctx.restore(); return
+    }
     const limb = (pivotX: number, pivotY: number, width: number, height: number, angle: number, color: string, foot?: string) => {
       ctx.save(); ctx.translate(pivotX, pivotY); ctx.rotate(angle)
       this.rect(-width / 2, 0, width, height, color)
@@ -118,8 +147,41 @@ export class Renderer {
     else this.rect(3, headTop + 9, 2, 1, '#c28665')
     ctx.restore()
   }
+  private horse(p: Player) {
+    const ctx = this.ctx
+    const gallop = p.grounded && Math.abs(p.vx) > .1 ? Math.sin(p.walkTime * 22) * .45 : 0
+    for (const [x, angle] of [[-9, gallop], [8, -gallop]]) {
+      ctx.save(); ctx.translate(x!, -13); ctx.rotate(angle!)
+      this.rect(-2, 0, 4, 13, '#70482d'); this.rect(-2, 10, 4, 3, '#302c28'); ctx.restore()
+    }
+    this.rect(-13, -26, 25, 14, '#95643f'); this.rect(-13, -26, 25, 3, '#b27b4b')
+    this.rect(-16, -23, 3, 17, '#382a22'); this.rect(7, -34, 7, 16, '#95643f')
+    this.rect(9, -37, 12, 10, '#a36d44'); this.rect(15, -30, 8, 6, '#b4845e')
+    this.rect(9, -41, 3, 6, '#70482d'); this.rect(6, -36, 3, 16, '#382a22')
+    this.rect(17, -35, 2, 2, '#171d1c'); this.rect(18, -29, 5, 2, '#453426')
+    this.rect(-6, -27, 13, 4, '#5b3528'); this.rect(-2, -23, 3, 11, '#c09b53')
+  }
+  private skinSprite(id: SkinId, stride: number, crouching: boolean, riding = false) {
+    const image = this.skins[id]!, ctx = this.ctx
+    // Use the second, right-facing side view from each supplied reference sheet.
+    // character() mirrors it when moving left; flight and riding reuse these parts.
+    const sheet = id === 'dream' ? { head: [205, 30, 70, 70], body: [223, 100, 35, 110], arm: [223, 100, 35, 110], leg: [223, 210, 35, 102] }
+      : { head: [201, 25, 80, 75], body: [223, 100, 35, 106], arm: [223, 100, 35, 106], leg: [223, 206, 35, 105] }
+    const drawPart = (source: number[], x: number, y: number, width: number, height: number) =>
+      ctx.drawImage(image, source[0]!, source[1]!, source[2]!, source[3]!, x, y, width, height)
+    const legTop = riding ? -9 : crouching ? -12 : -16, torsoTop = legTop - (crouching ? 10 : 14)
+    const limb = (source: number[], x: number, y: number, width: number, height: number, angle: number) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(angle); drawPart(source, -width / 2, 0, width, height); ctx.restore()
+    }
+    limb(sheet.leg, -1, legTop, 5, -legTop, riding ? -.6 : -stride)
+    limb(sheet.arm, -1, torsoTop, 5, 14, stride)
+    drawPart(sheet.body, -2.5, torsoTop, 5, legTop - torsoTop)
+    limb(sheet.leg, 1, legTop, 5, -legTop, riding ? .6 : stride)
+    limb(sheet.arm, 1, torsoTop, 5, 14, -stride)
+    drawPart(sheet.head, -5.5, torsoTop - 11, 11, 11)
+  }
   private flyingCharacter(p: Player, id: CharacterId, ox: number, time: number, active: boolean) {
-    const ctx = this.ctx, t = this.tile, alex = id === 'alex', u = t / 32
+    const ctx = this.ctx, t = this.tile, skinId = p.skin ?? id, alex = skinId === 'alex', u = t / 32
     const x = ox + (p.x + p.width / 2) * t, y = this.originY + (p.y + p.height / 2) * t
     ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(Math.max(-.3, Math.min(.3, p.vy * .03))); ctx.scale(u, u)
     if (active) for (let i = 0; i < 4; i++) {
@@ -130,12 +192,19 @@ export class Renderer {
     const flap = Math.sin(time * 9) * 1.5
     ctx.fillStyle = '#8890a6'; ctx.beginPath(); ctx.moveTo(-3, -3); ctx.lineTo(-17, -12 - flap); ctx.lineTo(-14, 0); ctx.lineTo(6, 0); ctx.closePath(); ctx.fill()
     this.rect(-13, -8 - flap, 8, 2, '#bdc3d1'); this.rect(-9, -5 - flap, 10, 2, '#a9b0c3')
+    if (!this.skins[skinId]) {
     this.rect(-16, -3, 10, 5, alex ? '#746047' : '#454e93'); this.rect(-17, -3, 3, 5, '#465052')
     this.rect(-7, -5, 17, 10, alex ? '#87a762' : '#42a6ad'); this.rect(-7, 3, 17, 2, alex ? '#668246' : '#2e838a')
     this.rect(4, 3, 10, 3, alex ? '#dfb18c' : '#bc8d70')
     this.rect(8, -7, 10, 10, alex ? '#dfb18c' : '#bc8d70'); this.rect(8, -7, 10, 3, alex ? '#b56636' : '#46372e')
     this.rect(8, -4, 2, 4, alex ? '#b56636' : '#46372e'); this.rect(15, -3, 3, 2, '#eee8d7'); this.rect(17, -3, 1, 2, alex ? '#577647' : '#5765a0')
     this.rect(16, 1, 2, 1, '#946b53')
+    }
+    if (this.skins[skinId]) {
+      // Reuse the chosen skin in flight, rotated into the horizontal glide pose.
+      ctx.save(); ctx.translate(-17, 0); ctx.rotate(Math.PI / 2); ctx.scale(.8, .8)
+      this.skinSprite(skinId, 0, false); ctx.restore()
+    }
     ctx.fillStyle = '#a5acc0'; ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-16, 11 + flap); ctx.lineTo(-1, 7); ctx.lineTo(7, 2); ctx.closePath(); ctx.fill()
     this.rect(-9, 4 + flap / 2, 7, 2, '#c4cad7'); this.rect(-11, 7 + flap / 2, 6, 2, '#e0e3e8')
     ctx.restore()
@@ -191,6 +260,7 @@ export class Renderer {
       ox = ((game.level.width ?? game.level.length) < visible - 2 ? centerOffset : 1.1) * t - this.camera * t
     }
     const t = this.tile
+    this.originX = ox
     this.cameraSnap = false; this.lastPlayerX = game.player.x; this.lastPlayerY = game.player.y
     ctx.clearRect(0, 0, w, h)
     const visible = w / t
@@ -251,7 +321,8 @@ export class Renderer {
         ctx.beginPath(); ctx.moveTo(ox + (b.x - (b.motion.axis === 'x' ? b.motion.range : 0) + size.width / 2) * t, this.originY + (b.y - (b.motion.axis === 'y' ? b.motion.range : 0) + size.height / 2) * t)
         ctx.lineTo(ox + (b.x + (b.motion.axis === 'x' ? b.motion.range : 0) + size.width / 2) * t, this.originY + (b.y + (b.motion.axis === 'y' ? b.motion.range : 0) + size.height / 2) * t); ctx.stroke(); ctx.restore()
       }
-      this.block(b.kind, x, y, t, size.width, size.height)
+      if (b.color) this.rect(x, y, t * size.width, t * size.height, b.color)
+      else this.block(b.kind, x, y, t, size.width, size.height)
       if (b.kind === 'slime') {
         const pulse = .5 + .5 * Math.sin(now * .004)
         ctx.save(); ctx.strokeStyle = `rgba(108,170,52,${.22 + pulse * .25})`; ctx.lineWidth = 2
@@ -273,6 +344,9 @@ export class Renderer {
         this.rect(x + width * .08, y + rung * t + 3, width * .8, 2, '#885728')
       }
       if (game.status === 'ready') this.label('↑ CLIMB ↓', x + width / 2, y - 12, '#6b4229', '#ffdf9b')
+    }
+    for (const hazard of game.level.hazards ?? []) {
+      this.rect(ox + hazard.x * t, this.originY + hazard.y * t, hazard.width * t, hazard.height * t, hazard.color)
     }
     for (const spike of game.level.spikes) {
       const x = ox + spike.x * t, y = this.originY + spike.y * t
@@ -316,16 +390,76 @@ export class Renderer {
       ctx.save(); ctx.globalAlpha = (1 - particle.age / particle.life) * .85
       this.rect(ox + particle.x * t, this.originY + particle.y * t, Math.max(2, particle.size * t), Math.max(2, particle.size * t), particle.color); ctx.restore()
     }
+    if (options.combat) {
+      const skeleton = options.combat.skeleton
+      const x = ox + (skeleton.x + skeleton.width / 2) * t, y = this.originY + skeleton.y * t
+      if (skeleton.hearts > 0 && x >= -t * .5 && x <= w + t * .5) {
+        if (this.skeletonImage) {
+          ctx.save(); ctx.translate(x, y); ctx.scale(skeleton.facing === -1 ? 1 : -1, 1)
+          ctx.drawImage(this.skeletonImage, -t * .49, 0, t * .98, skeleton.height * t)
+          ctx.restore()
+        }
+        this.hearts(skeleton.hearts, 15, x, y - this.heartHeight(15) - 8)
+        this.label(`SKELLY · ${skeleton.hearts}/15`, x, y - this.heartHeight(15) - 30, '#5c4844', '#fff5e6')
+      }
+      for (const arrow of options.combat.arrows) {
+        ctx.save(); ctx.translate(ox + arrow.x * t, this.originY + arrow.y * t)
+        ctx.rotate(Math.atan2(arrow.vy, arrow.vx))
+        this.rect(-t * .3, -1, t * .3, 3, '#8d643d')
+        this.rect(-t * .3, -4, 4, 9, '#e6dfcb')
+        ctx.fillStyle = '#727b7d'; ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(-5, -5); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill()
+        ctx.restore()
+      }
+    }
     for (const actor of actors) {
       const p = actor.state.player, x = ox + (p.x + p.width / 2) * t
+      const heartOffset = actor.id === 'alex' && actor.state.combat && actors.some(other => other.id !== actor.id
+        && Math.abs(other.state.player.x - p.x) * t < 110 * this.heartSize() && Math.abs(other.state.player.y - p.y) * t < 45) ? this.heartHeight(20) + 30 : 0
       if (x < -t || x > w + t || (actor.state.status === 'dead' && Math.sin(now * .012) <= -.4)) continue
       if (flight) this.flyingCharacter(p, actor.id, ox, worldTime, active && actor.state.status === 'playing')
       else this.character(p, actor.id, ox)
-      if (options.companions?.length || game.status === 'ready') this.label(`${actor.id.toUpperCase()}${actor.state.status === 'won' ? ' ✓' : ''}`, x, this.originY + p.y * t - 18, actor.id === 'alex' ? '#a27345' : '#487a88', '#ffffff')
+      if (actor.state.combat) {
+        const fighter = actor.state.combat
+        ctx.save(); ctx.translate(x + p.facing * t * .22, this.originY + (p.y + p.height * .6) * t)
+        ctx.scale(p.facing, 1); ctx.rotate(fighter.swing > 0 ? -.8 + (1 - fighter.swing / .18) * 1.5 : -.7)
+        this.rect(0, -2, t * .15, 5, '#6c4b2e')
+        this.rect(t * .12, -7, 4, 15, '#484b4a')
+        this.rect(t * .17, -4, t * .43, 8, '#727b7d')
+        this.rect(t * .17, -4, t * .43, 2, '#bdc5bd')
+        this.rect(t * .6, -2, 4, 4, '#bdc5bd'); ctx.restore()
+        this.hearts(fighter.hearts, 20, x, this.originY + p.y * t - this.heartHeight(20) - 8 - heartOffset)
+      }
+      if (options.companions?.length || game.status === 'ready' || actor.state.combat) this.label(`${actor.id.toUpperCase()}${!options.companions?.length && p.skin && p.skin !== actor.id ? ` · ${p.skin.toUpperCase()}` : ''}${p.horse ? flight ? ' · HORSE IN STABLE' : ' · HORSE' : ''}${actor.state.combat ? ` · ${actor.state.combat.hearts}/20` : ''}${actor.state.status === 'won' ? ' ✓' : ''}`, x, this.originY + p.y * t - (actor.state.combat ? this.heartHeight(20) + 30 + heartOffset : 18), actor.id === 'alex' ? '#a27345' : '#487a88', '#ffffff')
     }
     // Screen-edge fog helps the long courses fade naturally into the distance.
+    if (options.itemTarget) {
+      const target = options.itemTarget
+      ctx.save(); ctx.strokeStyle = target.valid ? '#4e9c64' : '#d45b44'; ctx.fillStyle = target.valid ? '#4e9c6433' : '#d45b4433'; ctx.lineWidth = 2
+      const x = ox + target.x * t, y = this.originY + target.y * t
+      if (target.block) { ctx.fillRect(x, y, t, t); ctx.strokeRect(x, y, t, t) }
+      else { ctx.beginPath(); ctx.arc(x, y, t * .25, 0, Math.PI * 2); ctx.fill(); ctx.stroke() }
+      ctx.restore()
+    }
     if ((game.level.width ?? game.level.length) > visible) {
       const fog = ctx.createLinearGradient(w - 45, 0, w, 0); fog.addColorStop(0, end ? 'rgba(30,20,40,0)' : nether ? 'rgba(29,3,2,0)' : 'rgba(230,241,228,0)'); fog.addColorStop(1, end ? 'rgba(30,20,40,.6)' : nether ? 'rgba(29,3,2,.65)' : 'rgba(230,241,228,.6)'); ctx.fillStyle = fog; ctx.fillRect(w - 45, 0, 45, h)
+    }
+  }
+  private heartSize() { return this.tile >= 48 ? 2 : 1 }
+  private heartHeight(maximum: number) { return (Math.ceil(maximum / 10) * 11 - 2) * this.heartSize() }
+  private hearts(hearts: number, maximum: number, x: number, y: number) {
+    // Nine-pixel outlines and shaded red interiors match the full/half references.
+    const pixels = ['..##.##..', '.#rr#rr#.', '#rsrrrsr#', '#rssrssr#', '#srsrrsr#', '.#srrrs#.', '..#srs#..', '...#s#...', '....#....']
+    const size = this.heartSize(), step = 11 * size, width = 10 * step - 2 * size
+    const left = Math.max(4, Math.min(this.width - width - 4, x - width / 2))
+    for (let i = 0; i < maximum; i++) for (let row = 0; row < pixels.length; row++) {
+      for (let col = 0; col < 9; col++) {
+        const pixel = pixels[row]![col]
+        if (pixel === '.') continue
+        const full = hearts - i >= 1, half = hearts - i >= .5 && col <= 4
+        const color = pixel === '#' ? '#090000' : !(full || half) ? '#404040'
+          : pixel === 's' ? '#960a00' : row >= 6 ? '#c5150a' : '#ff0800'
+        this.rect(left + (i % 10) * step + col * size, y + Math.floor(i / 10) * step + row * size, size, size, color)
+      }
     }
   }
   private label(text: string, x: number, y: number, color: string, background: string) {

@@ -113,6 +113,48 @@ function generateFlightLevel(number: number): Level {
 
 /** Coordinates are in blocks; Y points down and spawn/flag Y is feet height. */
 export function generateLevel(number: number): Level {
+  const level = generateCourse(number)
+  if (number % 10 === 8) {
+    level.bonus = { skeleton: middleSkeletonSpawn(level) }
+    level.name = 'Bonus: ' + level.name
+    level.subtitle = 'Defeat the skeleton with your stone sword, then reach the flag. Steve: K. Alex: F.'
+  }
+  return level
+}
+
+/** Exposed, spike-free static ground nearest halfway along the actual route. */
+function middleSkeletonSpawn(level: Level): { x: number; y: number } {
+  const columns = new Map<number, Block[]>()
+  for (const block of level.blocks.filter(item => item.solid && !item.motion)) {
+    for (let x = Math.floor(block.x); x < block.x + (block.width ?? 1); x++) {
+      const column = columns.get(x) ?? []
+      column.push(block); columns.set(x, column)
+    }
+  }
+  const surfaces = level.blocks.filter(block => block.solid && !block.motion
+    && ['grass', 'netherrack', 'nether-brick'].includes(block.kind)
+    && !level.spikes.some(spike => spike.y === block.y && spike.x < block.x + (block.width ?? 1) && spike.x + 1 > block.x)
+    && !(columns.get(Math.floor(block.x)) ?? []).some(other => other !== block
+      && other.y < block.y && other.y + (other.height ?? 1) > block.y - 1.8))
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+  const islands: { start: number; end: number; y: number }[] = []
+  for (const block of surfaces) {
+    const previous = islands.at(-1)
+    if (previous && previous.y === block.y && previous.end === block.x) previous.end += block.width ?? 1
+    else islands.push({ start: block.x, end: block.x + (block.width ?? 1), y: block.y })
+  }
+  const candidates = islands.filter(island => island.end - island.start >= 2).map(island => {
+    const x = (island.start + island.end - 0.65) / 2
+    const progress = level.layout === 'vertical'
+      ? (level.spawn.y - island.y) / (level.spawn.y - level.flag.y)
+      : (x + 0.325 - level.spawn.x) / (level.flag.x - level.spawn.x)
+    return { x, y: island.y, score: Math.abs(progress - 0.5) }
+  }).sort((a, b) => a.score - b.score || a.x - b.x)
+  const chosen = candidates[0]!
+  return { x: chosen.x, y: chosen.y }
+}
+
+function generateCourse(number: number): Level {
   if (!Number.isInteger(number) || number < 1 || number > 1000) {
     throw new RangeError('Level number must be an integer between 1 and 1000.')
   }

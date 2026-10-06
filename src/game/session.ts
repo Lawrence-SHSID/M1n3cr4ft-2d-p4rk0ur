@@ -1,17 +1,21 @@
-import type { CharacterId, GameMode, GameSession, Input, Level, MultiplayerMode, PlayerRun } from '../../shared/types'
+import type { CharacterId, GameMode, GameSession, Input, Level, MultiplayerMode, PlayerRun, SkinId } from '../../shared/types'
+import { HORSE, type Appearance } from './appearance'
 import { blockPosition, blockSize, createGame, PHYSICS, startGame, stepGame } from './physics'
 import { FLIGHT } from './flight'
+import { COMBAT, createCombat, stepCombat } from './combat'
 
 const IDLE: Input = { left: false, right: false, jump: false }
 const MAX_STEP = 1 / 120
 const EPSILON = 1e-7
 const RESPAWN_DELAY = 0.8
 
-export function createSession(level: Level, mode: GameMode = 'solo', multiplayerMode: MultiplayerMode = 'teamwork'): GameSession {
+// The UI supplies the random source; core simulations stay deterministic by default.
+export function createSession(level: Level, mode: GameMode = 'solo', multiplayerMode: MultiplayerMode = 'teamwork', options: { random?: () => number; skins?: Partial<Record<CharacterId, SkinId>> } = {}): GameSession {
   const rule = mode === 'duo' ? multiplayerMode : 'teamwork'
-  const runs: PlayerRun[] = [createRun('steve', level, level.spawn)]
-  if (mode === 'duo') runs.push(createRun('alex', level, rule === 'pk' ? level.spawn : alexSpawn(level)))
-  return { level, mode, multiplayerMode: rule, result: null, runs, status: 'ready', time: 0, elapsed: 0 }
+  const appearance = (id: CharacterId): Appearance => ({ skin: options.skins?.[id] ?? id, horse: (options.random?.() ?? 1) < HORSE.chance })
+  const runs: PlayerRun[] = [createRun('steve', level, level.spawn, appearance('steve'))]
+  if (mode === 'duo') runs.push(createRun('alex', level, rule === 'pk' ? level.spawn : alexSpawn(level), appearance('alex')))
+  return { level, mode, multiplayerMode: rule, result: null, runs, status: 'ready', time: 0, elapsed: 0, combat: createCombat(level) }
 }
 
 export function startSession(session: GameSession): void {
@@ -34,22 +38,27 @@ export function stepSession(session: GameSession, inputs: Partial<Record<Charact
 /** Retry the current route from each personal checkpoint, retaining the session clock. */
 export function retrySession(session: GameSession): void {
   session.result = null
+  if (session.combat) { session.combat.arrows = []; session.combat.skeleton.shootIn = COMBAT.firstShot }
   for (const run of session.runs) respawn(session, run, session.time, session.elapsed)
   session.status = 'playing'
 }
 
-function createRun(id: CharacterId, level: Level, spawn: { x: number; y: number }): PlayerRun {
-  return { id, state: createGame({ ...level, spawn: { ...spawn } }), checkpoint: null, deaths: 0, respawnIn: 0 }
+function createRun(id: CharacterId, level: Level, spawn: { x: number; y: number }, appearance: Appearance): PlayerRun {
+  return { id, state: createGame({ ...level, spawn: { ...spawn } }, appearance), checkpoint: null, deaths: 0, respawnIn: 0 }
 }
 
 function advanceSession(session: GameSession, inputs: Partial<Record<CharacterId, Input>>, dt: number): void {
   const nextTime = session.time + dt
   const nextElapsed = session.elapsed + dt
+  const previouslyAlive = session.runs.filter(run => run.state.status === 'playing')
   for (const run of session.runs) {
     if (run.state.status === 'dead') {
       if (session.mode === 'duo') {
         run.respawnIn = Math.max(0, run.respawnIn - dt)
-        if (run.respawnIn <= EPSILON) respawn(session, run, nextTime, nextElapsed)
+        if (run.respawnIn <= EPSILON) {
+          respawn(session, run, nextTime, nextElapsed)
+          previouslyAlive.push(run)
+        }
       }
       continue
     }
@@ -57,7 +66,10 @@ function advanceSession(session: GameSession, inputs: Partial<Record<CharacterId
     run.state.time = session.time
     run.state.elapsed = session.elapsed
     stepGame(run.state, inputs[run.id] ?? IDLE, dt)
-    if (run.state.deathReason !== null) {
+  }
+  stepCombat(session, inputs, dt)
+  for (const run of previouslyAlive) {
+    if (run.state.status === 'dead') {
       run.deaths += 1
       run.respawnIn = session.mode === 'duo' ? RESPAWN_DELAY : 0
     } else {
@@ -82,7 +94,7 @@ function advanceSession(session: GameSession, inputs: Partial<Record<CharacterId
 
 function activateCheckpoint(session: GameSession, run: PlayerRun): void {
   const flying = session.level.kind === 'elytra'
-  if (session.level.length <= 45 || (!flying && !run.state.player.grounded)) return
+  if ((session.level.number !== 0 && session.level.length <= 45) || (!flying && !run.state.player.grounded)) return
   const player = run.state.player
   const feet = player.y + player.height
   const checkpoints = session.level.checkpoints ?? []
@@ -99,10 +111,11 @@ function activateCheckpoint(session: GameSession, run: PlayerRun): void {
 function respawn(session: GameSession, run: PlayerRun, time: number, elapsed: number): void {
   const spawn = run.checkpoint ?? (run.id === 'alex' && session.multiplayerMode !== 'pk' ? alexSpawn(session.level) : session.level.spawn)
   const jumps = run.state.jumps
-  const state = createGame({ ...session.level, spawn: { x: spawn.x, y: spawn.y } })
+  const state = createGame({ ...session.level, spawn: { x: spawn.x, y: spawn.y } }, { skin: run.state.player.skin, horse: run.state.player.horse })
   state.time = time
   state.elapsed = elapsed
   state.jumps = jumps
+  state.goalUnlocked = !session.combat || session.combat.skeleton.hearts === 0
   startGame(state)
   run.state = state
   run.respawnIn = 0

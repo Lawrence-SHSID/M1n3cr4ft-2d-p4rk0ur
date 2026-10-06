@@ -1,6 +1,6 @@
 import type { CharacterId, GameMode, Input } from '../../shared/types'
 
-type Action = 'left' | 'right' | 'jump' | 'sneak'
+type Action = 'left' | 'right' | 'jump' | 'sneak' | 'attack'
 type Binding = { id: CharacterId; action: Action }
 type Tap = { atMs: number; released: boolean }
 
@@ -21,6 +21,7 @@ export class KeyboardControls {
   private readonly taps = new Map<string, Tap>()
   private readonly sprintKeys = new Map<CharacterId, string>()
   private readonly queuedJumps = new Set<CharacterId>()
+  private readonly queuedAttacks = new Set<CharacterId>()
 
   constructor(private readonly mode: GameMode, private autoSprint = false) {}
 
@@ -36,6 +37,7 @@ export class KeyboardControls {
 
     this.held.add(code)
     if (binding.action === 'jump') this.queuedJumps.add(binding.id)
+    if (binding.action === 'attack') this.queuedAttacks.add(binding.id)
     if (binding.action === 'sneak') this.sprintKeys.delete(binding.id)
 
     if (binding.action === 'left' || binding.action === 'right') {
@@ -67,6 +69,7 @@ export class KeyboardControls {
     this.taps.clear()
     this.sprintKeys.clear()
     this.queuedJumps.clear()
+    this.queuedAttacks.clear()
   }
 
   inputs(): Partial<Record<CharacterId, Input>> {
@@ -81,13 +84,17 @@ export class KeyboardControls {
         jump: this.isHeld(id, 'jump') || this.queuedJumps.has(id),
         sprint: (this.autoSprint || this.sprintKeys.has(id)) && left !== right && !sneak,
         sneak,
+        ...(this.isHeld(id, 'attack') || this.queuedAttacks.has(id) ? { attack: true } : {}),
       }
     }
     this.queuedJumps.clear()
+    this.queuedAttacks.clear()
     return inputs
   }
 
   private binding(code: string): Binding | null {
+    if (code === 'KeyK') return { id: 'steve', action: 'attack' }
+    if (code === 'KeyF') return { id: this.mode === 'duo' ? 'alex' : 'steve', action: 'attack' }
     const arrow = Object.hasOwn(ARROW_KEYS, code) ? ARROW_KEYS[code] : undefined
     if (arrow) return { id: 'steve', action: arrow }
     const wasd = Object.hasOwn(WASD_KEYS, code) ? WASD_KEYS[code] : undefined
