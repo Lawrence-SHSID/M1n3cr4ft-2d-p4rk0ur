@@ -36,6 +36,15 @@ h1 > span { color: #90a766; }
 .adventure-badge span { font-size: 10px; line-height: 1.6; }
 .adventure-badge strong { font-weight: 550; color: #627650; }
 .play-options { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: -7px 1px 15px; }
+.play-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.auto-sprint-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f0f3e8; border: 1px solid #e2e8d9; border-radius: 9px; color: #718266; font-size: 10px; white-space: nowrap; }
+.auto-sprint-toggle strong { margin-left: 5px; font-size: 9px; font-weight: 600; color: #8f9b82; }
+.auto-sprint-toggle[aria-checked="true"] { color: #48664a; background: #e8efdc; }
+.auto-sprint-toggle[aria-checked="true"] strong { color: #48664a; }
+.switch-track { display: inline-flex; align-items: center; width: 28px; height: 16px; padding: 2px; border-radius: 10px; background: #cad4be; transition: background .15s; }
+.switch-track > span { width: 12px; height: 12px; border-radius: 50%; background: #fcfdf6; box-shadow: 0 1px 2px #36523920; transition: transform .15s; }
+.auto-sprint-toggle[aria-checked="true"] .switch-track { background: #77965c; }
+.auto-sprint-toggle[aria-checked="true"] .switch-track > span { transform: translateX(12px); }
 .play-options > span { font-size: 10px; color: #94a083; }
 .mode-toggle { display: flex; gap: 4px; padding: 4px; border: 1px solid #e2e8d9; background: #f0f3e8; border-radius: 9px; }
 .mode-toggle button { background: transparent; color: #879576; font-size: 10px; padding: 7px 15px; border-radius: 5px; }
@@ -138,7 +147,7 @@ kbd { font-family: 'DM Sans', sans-serif; display: inline-grid; place-items: cen
 .modifier-keys > span { display: flex; align-items: center; gap: 5px; }
 .modifier-keys kbd { width: auto; padding: 0 6px; height: 22px; font-size: 9px; }
 .pixel-square { width: 10px; height: 10px; background: #a0b282; box-shadow: 2px 2px 0 #d8e2c9; }
-.block-list { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; }
+.block-list { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 4px; }
 .block-choice { background: none; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 3px 5px; border-radius: 5px; min-width: 34px; color: #8b9980; font-size: 8px; transition: background .15s; }
 .block-choice.selected { background: #edf2df; color: #68894c; }
 .block-choice:hover { background: #edf2df; }
@@ -183,3 +192,21 @@ footer .status-dot { width: 4px; height: 4px; opacity: .6; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 @media (max-width: 760px) { .play-options > span { font-size: 9px; max-width: 160px; text-align: right; line-height: 1.5; } .mode-toggle button { font-size: 9px; padding: 7px 11px; } .stage-tag.duo-hint { max-width: calc(100% - 38px); top: 54px; } .pane-label { left: 16px; top: 15px; } .checkpoint-notice { top: 57px; right: 16px; font-size: 9px; } .runner-progress { gap: 14px; font-size: 9px; } }
 @media (max-width: 650px) { .flight-controls { gap: 9px; flex-wrap: wrap; } .flight-controls > span { font-size: 9px; } .flight-controls > span:first-child { display: none; } .flight-controls button { padding: 9px 11px; } }
+
+@media (max-width: 650px) { .play-options { flex-wrap: wrap; gap: 9px; } .play-settings { gap: 8px; } .play-options > span { max-width: none; text-align: left; } }
+@media (max-width: 460px) { .play-settings { width: 100%; } .auto-sprint-toggle { font-size: 9px; } .block-list { gap: 10px; } }
+
+.game-card.nether .stage-tag { color: #6f3c25; background: #fff0d9ed; border-color: #dfad7380; }
+.game-card.nether .stage-tag .status-dot { background: #c88040; }
+.game-card.nether .in-game-hint { color: #ffe6ba; background: #381616e8; border-color: #98603a80; }
+.game-card.nether .course-length { color: #ffe6ba; }
+
+.game-card.end .stage-tag { color: #4c365c; background: #f4e9ffed; border-color: #b78dc980; }
+.game-card.end .stage-tag .status-dot { background: #9562b2; }
+.game-card.end .in-game-hint { color: #f5e8ff; background: #302337e8; border-color: #a37dba80; }
+.game-card.end .course-length { color: #f5e8ff; }
+
+.multiplayer-options { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: -3px 1px 15px; }
+.multiplayer-options > span { color: #78896f; font-size: 11px; line-height: 1.5; }
+.mode-toggle button.pk.active { color: #775083; background: #f5ecfa; }
+.rematch-button { margin: 15px auto 0; justify-content: center; font-size: 12px; }

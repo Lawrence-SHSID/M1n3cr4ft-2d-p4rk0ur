@@ -22,7 +22,12 @@ export class KeyboardControls {
   private readonly sprintKeys = new Map<CharacterId, string>()
   private readonly queuedJumps = new Set<CharacterId>()
 
-  constructor(private readonly mode: GameMode) {}
+  constructor(private readonly mode: GameMode, private autoSprint = false) {}
+
+  setAutoSprint(enabled: boolean): void {
+    this.autoSprint = enabled
+    this.sprintKeys.clear()
+  }
 
   press(code: string, repeat = false, atMs = performance.now()): CharacterId | null {
     const binding = this.binding(code)
@@ -68,12 +73,14 @@ export class KeyboardControls {
     const ids: CharacterId[] = this.mode === 'duo' ? ['steve', 'alex'] : ['steve']
     const inputs: Partial<Record<CharacterId, Input>> = {}
     for (const id of ids) {
+      const left = this.isHeld(id, 'left'), right = this.isHeld(id, 'right')
+      const sneak = this.isHeld(id, 'sneak')
       inputs[id] = {
-        left: this.isHeld(id, 'left'),
-        right: this.isHeld(id, 'right'),
+        left,
+        right,
         jump: this.isHeld(id, 'jump') || this.queuedJumps.has(id),
-        sprint: this.sprintKeys.has(id),
-        sneak: this.isHeld(id, 'sneak'),
+        sprint: (this.autoSprint || this.sprintKeys.has(id)) && left !== right && !sneak,
+        sneak,
       }
     }
     this.queuedJumps.clear()

@@ -11,7 +11,7 @@ test('checkpoints start only after the forty-five-block course', () => {
   assert.ok(first.checkpoints && first.checkpoints.length > 0)
 })
 
-test('long courses have deterministic checkpoints on safe static grass with room to respawn', () => {
+test('long courses have deterministic checkpoints on safe static land with room to respawn', () => {
   for (const number of [9, 11, 12, 19, 49, 99, 999]) {
     const level = generateLevel(number)
     const checkpoints = level.checkpoints!
@@ -19,18 +19,20 @@ test('long courses have deterministic checkpoints on safe static grass with room
     assert.deepEqual(checkpoints, generateLevel(number).checkpoints)
     assert.equal(new Set(checkpoints.map(point => point.id)).size, checkpoints.length)
     for (const checkpoint of checkpoints) {
-      assert.ok(checkpoint.x > level.spawn.x && checkpoint.x + 0.48 < level.length)
-      const supporting = level.blocks.find(block => block.solid && block.kind === 'grass' && !block.motion
+      assert.ok(checkpoint.x >= 0 && checkpoint.x + 0.48 < (level.width ?? level.length))
+      const safeKinds = level.theme === 'nether' ? ['netherrack', 'nether-brick']
+        : level.theme === 'end' ? ['end-stone', 'purpur'] : ['grass']
+      const supporting = level.blocks.find(block => block.solid && safeKinds.includes(block.kind) && !block.motion
         && block.y === checkpoint.y && checkpoint.x >= block.x && checkpoint.x + 0.48 <= block.x + 1)
-      assert.ok(supporting, 'the whole respawn footprint fits on a static grass tile')
+      assert.ok(supporting, 'the whole respawn footprint fits on a safe static surface')
       assert.ok(!level.spikes.some(spike => spike.x === supporting.x && spike.y === supporting.y))
-      assert.ok(level.blocks.some(block => block.kind === 'grass' && block.solid && !block.motion
+      assert.ok(level.blocks.some(block => safeKinds.includes(block.kind) && block.solid && !block.motion
         && block.y === supporting.y && Math.abs(block.x - supporting.x) === 1
         && !level.spikes.some(spike => spike.x === block.x && spike.y === block.y)), 'single-tile landings are excluded')
 
       const respawn = createGame({ ...level, spawn: { x: checkpoint.x, y: checkpoint.y } })
       assert.equal(respawn.player.grounded, true)
-      assert.equal(respawn.player.groundKind, 'grass')
+      assert.equal(respawn.player.groundKind, supporting.kind)
       startGame(respawn)
       stepGame(respawn, { left: false, right: false, jump: false }, 1 / 120)
       assert.equal(respawn.status, 'playing', 'a checkpoint cannot cause immediate spike death or finish the course')
@@ -40,7 +42,7 @@ test('long courses have deterministic checkpoints on safe static grass with room
 })
 
 test('recovery points are distributed near twenty-block intervals on long courses', () => {
-  for (const number of [9, 12, 19, 49, 99, 999]) {
+  for (const number of [9, 26, 29, 49, 99, 999]) {
     const level = generateLevel(number)
     const checkpoints = level.checkpoints!
     assert.ok(checkpoints[0]!.x <= 30)

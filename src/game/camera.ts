@@ -58,7 +58,7 @@ export class SharedCamera {
     // Separation reduces zoom immediately, while the fit limit handles large spans.
     const separationZoom = closeTile / (1 + separationX / 24 + (flying ? 0 : separationY / 18))
     const targetTile = Math.min(separationZoom, fitX, fitY)
-    const targetX = worldCenter((left + right) / 2, targetTile, viewportWidth, level.length, left, right)
+    const targetX = worldCenter((left + right) / 2, targetTile, viewportWidth, level.width ?? level.length, left, right)
     const targetY = (upper + lower) / 2
 
     if (!this.frame) {
@@ -95,7 +95,7 @@ export class SharedCamera {
       this.frame.tile = Math.min(this.frame.tile, fitY)
       this.frame.centerY = (ceiling + floor) / 2
     }
-    this.frame.centerX = worldCenter(this.frame.centerX, this.frame.tile, viewportWidth, level.length, left, right)
+    this.frame.centerX = worldCenter(this.frame.centerX, this.frame.tile, viewportWidth, level.width ?? level.length, left, right)
     return {
       tile: this.frame.tile,
       originX: viewportWidth / 2 - this.frame.centerX * this.frame.tile,

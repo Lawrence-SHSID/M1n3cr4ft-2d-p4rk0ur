@@ -99,7 +99,7 @@ test('left, sneak, and sprint do not affect flight trajectory or body shape', ()
 })
 
 test('all solid block kinds kill on contact instead of supporting a landing', () => {
-  for (const kind of ['grass', 'dirt', 'stone', 'wood', 'leaf', 'slime'] as const) {
+  for (const kind of ['grass', 'dirt', 'stone', 'wood', 'leaf', 'slime', 'ice', 'netherrack', 'nether-brick', 'end-stone', 'purpur'] as const) {
     const state = flying(course([{ id: kind, x: 2, y: 4.5, width: 1, height: 3, kind, solid: true }]))
     tick(state, 0.5)
     assert.equal(state.status, 'dead', kind)

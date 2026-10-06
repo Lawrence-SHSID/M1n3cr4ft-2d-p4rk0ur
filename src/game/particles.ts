@@ -5,7 +5,9 @@ type Actor = { id: CharacterId; player: Player; status: GameStatus }
 const palettes: Record<BlockKind, string[]> = {
   grass: ['#92704c', '#ab875b', '#7eaa55'], dirt: ['#92704c', '#b28b61', '#785738'],
   stone: ['#9aa09b', '#bfc6bd', '#7d8985'], wood: ['#a17b49', '#765631'],
-  leaf: ['#799b4f', '#a4b56d'], slime: ['#8bc854', '#b4db7b'],
+  leaf: ['#799b4f', '#a4b56d'], slime: ['#8bc854', '#b4db7b'], ice: ['#a7c9fa', '#c4e3ff', '#ffffff'],
+  netherrack: ['#733d38', '#9b6159', '#4c201f'], 'nether-brick': ['#512826', '#7a4140', '#361616'],
+  'end-stone': ['#e2e6ac', '#c6cb91', '#f1f4bf'], purpur: ['#b18bb8', '#cbabcd', '#8b638f'],
 }
 
 /** Footstep crumbs live in world coordinates, so cameras never drag their trail. */

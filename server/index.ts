@@ -1,6 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { extname, isAbsolute, relative, resolve } from 'node:path'
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generateLevel } from '../shared/levels'
 
@@ -37,7 +37,7 @@ function json(response: ServerResponse, status: number, payload: unknown, head =
 
 function isInside(root: string, file: string): boolean {
   const path = relative(root, file)
-  return path !== '..' && !path.startsWith('../') && !isAbsolute(path)
+  return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 async function safeFile(distDir: string, pathname: string): Promise<string | null> {

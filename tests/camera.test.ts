@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { GameStatus, Level, Player } from '../shared/types'
 import { SharedCamera, type CameraFrame } from '../src/game/camera'
+import { generateLevel } from '../shared/levels'
 
 const width = 1000
 const height = 600
@@ -12,7 +13,7 @@ function level(length = 120): Level {
 function actor(x: number, y = 7.75, status: GameStatus = 'playing'): { player: Player; status: GameStatus } {
   return {
     status,
-    player: { x, y, width: 0.48, height: 1.25, vx: 0, vy: 0, grounded: true, groundKind: 'grass', groundId: null, facing: 1, walkTime: 0, sneaking: false, sprinting: false },
+    player: { x, y, width: 0.48, height: 1.25, vx: 0, vy: 0, grounded: true, groundKind: 'grass', groundId: null, facing: 1, walkTime: 0, sneaking: false, sprinting: false, iceMomentum: false, climbing: false },
   }
 }
 function target(actors: ReturnType<typeof actor>[], map = level(), w = width, h = height): CameraFrame {
@@ -223,4 +224,37 @@ test('invalid durations freeze smoothing, and long frames use the sensible dt ca
   const other = new SharedCamera()
   other.update(map, [actor(40)], width, height, nominal, 0)
   assert.deepEqual(capped, other.update(map, subjects, width, height, nominal, 0.1))
+})
+
+test('vertical Nether camera fits bottom and summit players and prepares lower checkpoint respawns', () => {
+  for (const number of [11, 19]) for (const viewportWidth of [390, 1000]) {
+    const map = generateLevel(number)
+    const bottom = actor(map.spawn.x, map.spawn.y - 1.25)
+    const summit = actor(map.flag.x - 0.24, map.flag.y - 1.25)
+    const camera = new SharedCamera()
+    camera.update(map, [bottom, actor(map.spawn.x + 1, map.spawn.y - 1.25)], viewportWidth, height, nominal, 0)
+    let frame = camera.update(map, [bottom, summit], viewportWidth, height, nominal, 1 / 120)
+    assert.ok(isFramed(frame, bottom.player, viewportWidth, height))
+    assert.ok(isFramed(frame, summit.player, viewportWidth, height))
+    for (let index = 0; index < 240; index++) {
+      frame = camera.update(map, [bottom, summit], viewportWidth, height, nominal, 1 / 120)
+      assert.ok(isFramed(frame, bottom.player, viewportWidth, height))
+      assert.ok(isFramed(frame, summit.player, viewportWidth, height))
+    }
+    assert.ok(viewportWidth / frame.tile > map.width!)
+    assert.ok(Math.abs(frame.originX + map.width! / 2 * frame.tile - viewportWidth / 2) < 1e-7,
+      'narrow vertical towers center by their actual width, not the nominal route length')
+    const checkpoint = map.checkpoints![0]!
+    const predicted = { ...actor(checkpoint.x, checkpoint.y - 1.25), predicted: true }
+    const recovery = new SharedCamera()
+    recovery.update(map, [summit], viewportWidth, height, nominal, 0)
+    for (let index = 0; index < 96; index++) {
+      frame = recovery.update(map, [summit, predicted], viewportWidth, height, nominal, 1 / 120)
+      assert.ok(isFramed(frame, summit.player, viewportWidth, height), 'the living summit player stays visible')
+    }
+    assert.ok(isFramed(frame, predicted.player, viewportWidth, height), 'the saved lower-floor spawn is framed by 0.8 seconds')
+    frame = recovery.update(map, [summit, actor(checkpoint.x, checkpoint.y - 1.25)], viewportWidth, height, nominal, 1 / 120)
+    assert.ok(isFramed(frame, summit.player, viewportWidth, height))
+    assert.ok(isFramed(frame, predicted.player, viewportWidth, height))
+  }
 })

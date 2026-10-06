@@ -4,9 +4,13 @@ import { FLIGHT, stepFlight } from './flight'
 export const PHYSICS = Object.freeze({
   gravity: 28,
   speed: 4.3,
-  sprintSpeed: 7,
+  sprintSpeed: 6.5,
   sneakSpeed: 1.5,
-  normalJumpHeight: 1,
+  iceAcceleration: 14,
+  iceDrag: 4,
+  iceAirAcceleration: 4,
+  climbSpeed: 3,
+  normalJumpHeight: 1.2,
   slimeJumpHeight: 5,
   playerWidth: 0.48,
   playerHeight: 1.25,
@@ -44,7 +48,7 @@ export function createGame(level: Level): GameState {
       x: level.spawn.x, y: level.spawn.y - height,
       vx: flying ? FLIGHT.speed : 0, vy: 0, width, height,
       grounded: false, groundKind: null, groundId: null, facing: 1, walkTime: 0,
-      sneaking: false, sprinting: false,
+      sneaking: false, sprinting: false, iceMomentum: false, climbing: false,
     },
     status: 'ready', time: 0, elapsed: 0, deathReason: null, jumps: 0,
     coyote: 0, jumpBuffer: 0, jumpWasPressed: false,
@@ -59,6 +63,7 @@ export function createGame(level: Level): GameState {
   if (ground) {
     state.player.grounded = true
     state.player.groundKind = ground.kind
+    state.player.iceMomentum = ground.kind === 'ice'
     state.player.groundId = ground.id
     state.coyote = PHYSICS.coyoteTime
   }
@@ -110,6 +115,12 @@ function advance(state: GameState, input: Input, dt: number): void {
     player.y += supporting.y - supporting.oldY
   }
 
+  const ladder = state.level.ladders?.find(item =>
+    overlaps(player.x, player.x + player.width, item.x, item.x + (item.width ?? 0.84))
+      && player.y <= item.y + item.height + EPSILON
+      && player.y + player.height >= item.y - EPSILON)
+  player.climbing = Boolean(ladder && (player.climbing || input.jump || input.sneak))
+
   // Crouching changes the hitbox around the feet. Releasing crouch only stands
   // when the larger body fits, so a low slab ceiling cannot trap the player.
   const feet = player.y + player.height
@@ -117,11 +128,17 @@ function advance(state: GameState, input: Input, dt: number): void {
   const canStand = !blocks.some(item =>
     overlaps(player.x, player.x + player.width, item.x, item.x + item.width)
       && overlaps(standingY, feet, item.y, item.y + item.height))
-  player.sneaking = Boolean(input.sneak) || !canStand
+  player.sneaking = (!player.climbing && Boolean(input.sneak)) || !canStand
+  if (!canStand) player.climbing = false
   player.height = player.sneaking ? PHYSICS.crouchHeight : PHYSICS.playerHeight
   player.y = feet - player.height
 
-  if (state.jumpBuffer > 0 && (wasGrounded || state.coyote > 0)) {
+  if (player.climbing) {
+    state.jumpBuffer = 0
+    state.coyote = 0
+    player.iceMomentum = false
+  }
+  if (!player.climbing && state.jumpBuffer > 0 && (wasGrounded || state.coyote > 0)) {
     const jumpHeight = player.groundKind === 'slime' ? PHYSICS.slimeJumpHeight : PHYSICS.normalJumpHeight
     player.vy = -Math.sqrt(2 * PHYSICS.gravity * jumpHeight)
     player.grounded = false
@@ -132,9 +149,18 @@ function advance(state: GameState, input: Input, dt: number): void {
   }
 
   const direction = Number(input.right) - Number(input.left)
-  player.sprinting = Boolean(input.sprint) && !player.sneaking && direction !== 0
-  const speed = player.sneaking ? PHYSICS.sneakSpeed : player.sprinting ? PHYSICS.sprintSpeed : PHYSICS.speed
-  player.vx = direction * speed
+  player.sprinting = Boolean(input.sprint) && !player.sneaking && !player.climbing && direction !== 0
+  const speed = player.climbing ? PHYSICS.climbSpeed : player.sneaking ? PHYSICS.sneakSpeed : player.sprinting ? PHYSICS.sprintSpeed : PHYSICS.speed
+  // Ice carries momentum through release and jumps. Other surfaces restore grip.
+  // Crouching brakes immediately and retains the normal edge protection.
+  if (wasGrounded && !player.climbing) player.iceMomentum = supporting?.block.kind === 'ice'
+  if (player.iceMomentum && !player.sneaking) {
+    const acceleration = direction === 0
+      ? player.grounded ? PHYSICS.iceDrag : 0
+      : player.grounded ? PHYSICS.iceAcceleration : PHYSICS.iceAirAcceleration
+    const difference = direction * speed - player.vx
+    player.vx += Math.sign(difference) * Math.min(Math.abs(difference), acceleration * dt)
+  } else player.vx = direction * speed
   if (direction !== 0) player.facing = direction > 0 ? 1 : -1
   const previousX = player.x
   player.x += player.vx * dt
@@ -161,8 +187,18 @@ function advance(state: GameState, input: Input, dt: number): void {
   const previousY = player.y
   const previousFeet = previousY + player.height
   // Analytical displacement avoids adding extra jump height from Euler integration.
-  const verticalDistance = player.vy * dt + 0.5 * PHYSICS.gravity * dt * dt
-  player.vy += PHYSICS.gravity * dt
+  let verticalDistance: number
+  if (player.climbing && ladder) {
+    player.vy = (Number(Boolean(input.sneak)) - Number(input.jump)) * PHYSICS.climbSpeed
+    const target = Math.max(ladder.y - player.height,
+      Math.min(ladder.y + ladder.height - player.height, player.y + player.vy * dt))
+    verticalDistance = target - player.y
+    if (Math.abs(verticalDistance) < EPSILON) player.vy = 0
+    else player.walkTime += dt
+  } else {
+    verticalDistance = player.vy * dt + 0.5 * PHYSICS.gravity * dt * dt
+    player.vy += PHYSICS.gravity * dt
+  }
   player.y += verticalDistance
   player.grounded = false
   player.groundId = null
@@ -188,7 +224,8 @@ function advance(state: GameState, input: Input, dt: number): void {
     player.grounded = true
     player.groundId = landing.block.id
     player.groundKind = landing.block.kind
-    state.coyote = PHYSICS.coyoteTime
+    player.iceMomentum = landing.block.kind === 'ice'
+    state.coyote = player.climbing ? 0 : PHYSICS.coyoteTime
   } else if (ceiling) {
     player.y = ceiling.y + ceiling.height
     player.vy = 0

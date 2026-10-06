@@ -3,7 +3,10 @@ import test from 'node:test'
 import { generateLevel } from '../shared/levels'
 import type { Level } from '../shared/types'
 
-const surfaces = (level: Level) => level.blocks.filter(block => block.kind === 'grass' || block.kind === 'slime')
+const surfaces = (level: Level) => level.blocks.filter(block => block.solid && !block.motion
+  && ['grass', 'slime', 'ice', 'netherrack', 'nether-brick', 'end-stone', 'purpur'].includes(block.kind)
+  && !level.blocks.some(other => other.solid && !other.motion && other.x === block.x && other.y < block.y))
+  .sort((a, b) => a.x - b.x)
 const surfaceAt = (level: Level, x: number) => surfaces(level).find(block => block.x === x)
 
 test('levels start at ten blocks and grow by exactly five, with bounded deterministic geometry', () => {
@@ -11,13 +14,15 @@ test('levels start at ten blocks and grow by exactly five, with bounded determin
     const level = generateLevel(number)
     assert.equal(level.length, 10 + (number - 1) * 5)
     assert.equal(level.number, number)
-    assert.ok(level.flag.x > level.length - 2 && level.flag.x < level.length)
-    assert.ok(level.blocks.every(block => block.x >= 0 && block.x + (block.width ?? 1) <= level.length))
+    if (level.layout === 'vertical') assert.ok(level.flag.x >= 0 && level.flag.x < level.width!)
+    else assert.ok(level.flag.x > level.length - 2 && level.flag.x < level.length)
+    assert.ok(level.blocks.every(block => block.x >= 0 && block.x + (block.width ?? 1) <= (level.width ?? level.length)))
     assert.ok(level.spikes.every(spike => spike.x >= 0 && spike.x + 1 <= level.length))
     assert.equal(new Set(level.blocks.map(block => block.id)).size, level.blocks.length)
     assert.deepEqual(level, generateLevel(number))
     if (level.kind !== 'elytra') {
-      const finish = surfaceAt(level, level.length - 1)
+      const finish = level.blocks.find(block => block.solid && !block.motion && block.y === level.flag.y
+        && block.x <= level.flag.x && block.x + (block.width ?? 1) > level.flag.x)
       assert.ok(finish)
       assert.equal(finish.y, level.flag.y)
       assert.ok(!level.spikes.some(spike => spike.x === finish.x))
@@ -55,11 +60,11 @@ test('the first six courses have distinct islands, elevations, gaps, and spring 
   assert.equal(surfaceAt(levels[4]!, 24)?.y, 8, 'ridge course descends again')
 })
 
-test('moving stone includes horizontal ferries and vertical elevators with bounded half-slabs', () => {
+test('moving platforms include horizontal ferries and vertical elevators with bounded half-slabs', () => {
   const axes = new Set<string>()
   for (let number = 1; number <= 50; number++) {
     const level = generateLevel(number)
-    if (level.kind === 'elytra') continue
+    if (level.kind === 'elytra' || level.theme !== 'overworld') continue
     const moving = level.blocks.filter(block => block.motion)
     assert.ok(moving.length >= 1)
     for (const block of moving) {
@@ -100,9 +105,9 @@ test('the sprint introduction explains double-tapping a direction', () => {
 
 test('later seeds mix different gaps and heights rather than repeating five-tile modules', () => {
   const signatures = new Set<string>()
-  for (let number = 7; number <= 20; number++) {
+  for (let number = 8; number <= 38; number++) {
     const level = generateLevel(number)
-    if (level.kind === 'elytra') continue
+    if (level.kind === 'elytra' || level.theme !== 'overworld') continue
     const surface = surfaces(level)
     const starts = surface.filter((block, index) => index === 0 || block.x > surface[index - 1]!.x + 1)
     assert.ok(starts.length >= 3)
@@ -120,4 +125,17 @@ test('later seeds mix different gaps and heights rather than repeating five-tile
 
 test('invalid level numbers are rejected', () => {
   for (const number of [0, -1, 1.1, 1001, Infinity, NaN]) assert.throws(() => generateLevel(number), RangeError)
+})
+
+test('course seven introduces solid ice with safe grass starts and finishes', () => {
+  const course = generateLevel(7)
+  assert.equal(course.name, 'Frostline crossing')
+  assert.equal(course.length, 40)
+  const ice = course.blocks.filter(block => block.kind === 'ice')
+  assert.ok(ice.length >= 10)
+  assert.ok(ice.every(block => block.solid && !block.motion))
+  assert.equal(surfaceAt(course, 0)?.kind, 'grass')
+  assert.equal(surfaceAt(course, 39)?.kind, 'grass')
+  assert.equal(surfaceAt(course, 33)?.kind, 'slime')
+  assert.deepEqual(course, generateLevel(7))
 })

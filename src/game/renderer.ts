@@ -3,12 +3,14 @@ import { blockPosition, blockSize } from './physics'
 import { WalkingParticles } from './particles'
 import { SharedCamera } from './camera'
 
-const colors: Record<BlockKind, string> = { grass: '#8aaa5c', dirt: '#856243', stone: '#91958c', wood: '#846840', leaf: '#446a32', slime: '#85c759' }
+const colors: Record<BlockKind, string> = { grass: '#8aaa5c', dirt: '#856243', stone: '#91958c', wood: '#846840', leaf: '#446a32', slime: '#85c759', ice: '#a7c9fa', netherrack: '#79443e', 'nether-brick': '#4a2222', 'end-stone': '#dce29e', purpur: '#af88b3' }
 type Sprite = { image: HTMLImageElement; sx?: number; sy?: number; sw?: number; sh?: number }
 interface RenderOptions { character?: CharacterId; companions?: PlayerRun[]; checkpointId?: string | null; worldTime?: number; active?: boolean }
 export class Renderer {
   private ctx: CanvasRenderingContext2D
   private textures: Partial<Record<BlockKind, Sprite>> = {}
+  private netherBackground: HTMLImageElement | null = null
+  private endBackground: HTMLImageElement | null = null
   private width = 1000
   private height = 510
   private camera = 0
@@ -28,9 +30,11 @@ export class Renderer {
   private lastDrawTime: number | null = null
   constructor(private canvas: HTMLCanvasElement) { this.ctx = canvas.getContext('2d')! }
   async load() {
-    await Promise.all(['grass', 'dirt', 'stone', 'slime', 'tree'].map(async name => {
+    await Promise.all(['grass', 'dirt', 'stone', 'slime', 'ice', 'tree', 'netherrack', 'nether-brick', 'nether-background', 'end-stone', 'purpur', 'end-background'].map(async name => {
       const image = new Image(); image.src = `/textures/${name}.png`; await image.decode()
-      if (name === 'tree') {
+      if (name === 'nether-background') this.netherBackground = image
+      else if (name === 'end-background') this.endBackground = image
+      else if (name === 'tree') {
         this.textures.wood = { image, sx: 229, sy: 216, sw: 28, sh: 28 }
         this.textures.leaf = { image, sx: 200, sy: 157, sw: 28, sh: 28 }
       } else this.textures[name as BlockKind] = { image }
@@ -85,7 +89,7 @@ export class Renderer {
     const shirt = alex ? '#85a760' : '#40a4aa', darkShirt = alex ? '#607b46' : '#2e868e'
     const x = ox + (p.x + p.width / 2) * t, feet = this.originY + (p.y + p.height) * t
     const u = t / 32
-    const stride = p.grounded && Math.abs(p.vx) > .1 ? Math.sin(p.walkTime * (p.sprinting ? 20 : p.sneaking ? 9 : 14)) * (p.sneaking ? .22 : p.sprinting ? .82 : .62) : p.grounded ? 0 : .35
+    const stride = p.climbing ? Math.sin(p.walkTime * 12) * .5 : p.grounded && Math.abs(p.vx) > .1 ? Math.sin(p.walkTime * (p.sprinting ? 20 : p.sneaking ? 9 : 14)) * (p.sneaking ? .22 : p.sprinting ? .82 : .62) : p.grounded ? 0 : .35
     const legTop = p.sneaking ? -12 : -16, torsoTop = p.sneaking ? -22 : -29
     const torsoHeight = p.sneaking ? 10 : 14, headTop = p.sneaking ? -32 : -40
     ctx.save(); ctx.translate(Math.round(x), Math.round(feet)); ctx.scale(p.facing * u, u)
@@ -139,6 +143,8 @@ export class Renderer {
   draw(game: GameState, now: number, options: RenderOptions = {}) {
     const worldTime = options.worldTime ?? game.time, character = options.character ?? 'steve'
     const flight = game.level.kind === 'elytra'
+    const nether = game.level.theme === 'nether'
+    const end = game.level.theme === 'end'
     const actors = [...(options.companions ?? []).map(run => ({ id: run.id, state: run.state })), { id: character, state: game }]
     const active = options.active ?? game.status === 'playing'
     this.dust.update(actors.map(actor => ({ id: actor.id, player: actor.state.player, status: actor.state.status })), this.lastWorldTime === null ? 0 : worldTime - this.lastWorldTime, active)
@@ -149,7 +155,8 @@ export class Renderer {
         this.tile = Math.min(this.nominalTile, Math.floor((this.height - 64) / (floor - ceiling)))
         this.baseY = (this.height - (floor - ceiling) * this.tile) / 2 - ceiling * this.tile
       } else {
-      const start = game.level.blocks.filter(block => block.x < 4 && !block.motion)
+      const start = game.level.blocks.filter(block => block.x < 4 && !block.motion
+        && (game.level.layout !== 'vertical' || block.y >= game.level.spawn.y))
       const bottom = Math.max(...start.map(block => block.y + blockSize(block).height))
       const top = Math.min(...start.map(block => block.y))
       this.tile = Math.min(this.nominalTile, Math.floor((this.height - 80) / (bottom - top)))
@@ -178,17 +185,36 @@ export class Renderer {
       const lift = flight ? 0 : Math.max(0, Math.min(215, h * .4) - (this.baseY + game.player.y * t))
       this.cameraLift = snap ? lift : this.cameraLift + (lift - this.cameraLift) * .16
       this.originY = this.baseY + this.cameraLift
-      const visible = w / t, centerOffset = Math.max(1.1, (visible - game.level.length) / 2)
-      const target = Math.max(0, Math.min(game.level.length - visible + 2.2, game.player.x - visible * .36))
+      const visible = w / t, centerOffset = Math.max(1.1, (visible - (game.level.width ?? game.level.length)) / 2)
+      const target = Math.max(0, Math.min((game.level.width ?? game.level.length) - visible + 2.2, game.player.x - visible * .36))
       this.camera = snap ? Math.max(0, target) : this.camera + (Math.max(0, target) - this.camera) * .10
-      ox = (game.level.length < visible - 2 ? centerOffset : 1.1) * t - this.camera * t
+      ox = ((game.level.width ?? game.level.length) < visible - 2 ? centerOffset : 1.1) * t - this.camera * t
     }
     const t = this.tile
     this.cameraSnap = false; this.lastPlayerX = game.player.x; this.lastPlayerY = game.player.y
     ctx.clearRect(0, 0, w, h)
+    const visible = w / t
+    if (end) {
+      this.rect(0, 0, w, h, '#302638')
+      if (this.endBackground) ctx.drawImage(this.endBackground, 0, 0, w, h)
+      this.rect(0, 0, w, h, 'rgba(30,20,40,.28)')
+      for (let i = 0; i < 16; i++) {
+        const moteX = (i * 109 + now * .004) % w
+        const moteY = (i * 79 + now * .006) % h
+        this.rect(moteX, moteY, 2, 2, i % 2 ? '#c49add' : '#e8d3f5')
+      }
+    } else if (nether) {
+      this.rect(0, 0, w, h, '#290604')
+      if (this.netherBackground) ctx.drawImage(this.netherBackground, 0, 0, w, h)
+      this.rect(0, 0, w, h, 'rgba(29,3,2,.38)')
+      for (let i = 0; i < 18; i++) {
+        const emberX = (i * 97 + now * .008) % w
+        const emberY = h - ((i * 61 + now * .012) % h)
+        this.rect(emberX, emberY, 2, 2, i % 2 ? '#ee874a' : '#ffcb70')
+      }
+    } else {
     const sky = ctx.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, flight ? '#dfe6f4' : '#d8eee6'); sky.addColorStop(.7, flight ? '#e9ebf4' : '#e6f1e4'); sky.addColorStop(1, flight ? '#f3efdf' : '#f1f3d8')
     ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h)
-    const visible = w / t
     // Clouds and distant islands drift slowly behind the fixed, uneditable course.
     for (let i = 0; i < 7; i++) {
       const x = (((i * 237 + w - this.camera * t * .18 + now * .003) % (w + 190) + w + 190) % (w + 190)) - 110
@@ -202,6 +228,7 @@ export class Renderer {
       this.rect(x + 94, y - 25, 6, 25, '#7fa893'); this.rect(x + 81, y - 39, 32, 21, '#7fa893')
     }
     ctx.restore()
+    }
     if (flight && game.level.flight) {
       ctx.save(); ctx.strokeStyle = 'rgba(125,137,161,.35)'; ctx.lineWidth = 1; ctx.setLineDash([4, 8])
       for (const boundary of [game.level.flight.ceiling, game.level.flight.floor]) {
@@ -235,6 +262,18 @@ export class Renderer {
         if (game.status === 'ready') this.label('5× JUMP', x + t / 2, y - 18, '#557b34', '#f1f7df')
       }
     }
+    for (const ladder of game.level.ladders ?? []) {
+      const x = ox + ladder.x * t, y = this.originY + ladder.y * t
+      const width = (ladder.width ?? .84) * t, height = ladder.height * t
+      if (x + width < 0 || x > w) continue
+      this.rect(x + width * .08, y, Math.max(3, t * .1), height, '#bd8748')
+      this.rect(x + width * .78, y, Math.max(3, t * .1), height, '#bd8748')
+      for (let rung = .12; rung < ladder.height; rung += .35) {
+        this.rect(x + width * .08, y + rung * t, width * .8, Math.max(3, t * .09), '#e5b66d')
+        this.rect(x + width * .08, y + rung * t + 3, width * .8, 2, '#885728')
+      }
+      if (game.status === 'ready') this.label('↑ CLIMB ↓', x + width / 2, y - 12, '#6b4229', '#ffdf9b')
+    }
     for (const spike of game.level.spikes) {
       const x = ox + spike.x * t, y = this.originY + spike.y * t
       this.rect(x + t * .06, y - 4, t * .88, 5, '#697474')
@@ -267,7 +306,7 @@ export class Renderer {
     const wave = Math.round(Math.sin(now * .005) * 3)
     ctx.fillStyle = '#dc6350'; ctx.beginPath(); ctx.moveTo(flagX + 2, flagY - t * 1.56); ctx.lineTo(flagX + t * .63, flagY - t * 1.56 + wave); ctx.lineTo(flagX + t * .49, flagY - t * 1.34 + wave); ctx.lineTo(flagX + t * .63, flagY - t * 1.12 + wave); ctx.lineTo(flagX + 2, flagY - t * 1.12); ctx.closePath(); ctx.fill()
     this.rect(flagX + 3, flagY - t * 1.56, 4, t * .44, '#b74839')
-    if (game.status === 'ready') this.label('FINISH', flagX + 10, Math.max(16, flagY - t * 1.72), '#99774d', '#fff8e6')
+    if (game.status === 'ready' && flagY >= 0 && flagY < h + t * 2) this.label('FINISH', flagX + 10, Math.max(16, flagY - t * 1.72), '#99774d', '#fff8e6')
     // Small pixel particles around the boost and finish.
     if (game.status === 'won') for (let i = 0; i < 32; i++) {
       const age = (now * .0003 + i * .071) % 1
@@ -285,8 +324,8 @@ export class Renderer {
       if (options.companions?.length || game.status === 'ready') this.label(`${actor.id.toUpperCase()}${actor.state.status === 'won' ? ' ✓' : ''}`, x, this.originY + p.y * t - 18, actor.id === 'alex' ? '#a27345' : '#487a88', '#ffffff')
     }
     // Screen-edge fog helps the long courses fade naturally into the distance.
-    if (game.level.length > visible) {
-      const fog = ctx.createLinearGradient(w - 45, 0, w, 0); fog.addColorStop(0, 'rgba(230,241,228,0)'); fog.addColorStop(1, 'rgba(230,241,228,.6)'); ctx.fillStyle = fog; ctx.fillRect(w - 45, 0, 45, h)
+    if ((game.level.width ?? game.level.length) > visible) {
+      const fog = ctx.createLinearGradient(w - 45, 0, w, 0); fog.addColorStop(0, end ? 'rgba(30,20,40,0)' : nether ? 'rgba(29,3,2,0)' : 'rgba(230,241,228,0)'); fog.addColorStop(1, end ? 'rgba(30,20,40,.6)' : nether ? 'rgba(29,3,2,.65)' : 'rgba(230,241,228,.6)'); ctx.fillStyle = fog; ctx.fillRect(w - 45, 0, 45, h)
     }
   }
   private label(text: string, x: number, y: number, color: string, background: string) {

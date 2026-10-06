@@ -31,7 +31,7 @@ test('flight gates leave broad alternating upper and lower passages with long st
     let previousSide: 'top' | 'bottom' | null = null
     let previousEnd = 0
     for (const gate of level.blocks) {
-      assert.equal(gate.kind, 'stone')
+      assert.equal(gate.kind, number === 20 ? 'nether-brick' : 'stone')
       assert.ok(gate.solid && !gate.motion)
       assert.ok((gate.width ?? 1) >= 1 && (gate.width ?? 1) <= 1.5)
       const fromTop = gate.y === level.flight!.ceiling

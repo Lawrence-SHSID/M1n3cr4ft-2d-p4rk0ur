@@ -1,4 +1,4 @@
-import type { CharacterId, GameMode, GameSession, Input, Level, PlayerRun } from '../../shared/types'
+import type { CharacterId, GameMode, GameSession, Input, Level, MultiplayerMode, PlayerRun } from '../../shared/types'
 import { blockPosition, blockSize, createGame, PHYSICS, startGame, stepGame } from './physics'
 import { FLIGHT } from './flight'
 
@@ -7,10 +7,11 @@ const MAX_STEP = 1 / 120
 const EPSILON = 1e-7
 const RESPAWN_DELAY = 0.8
 
-export function createSession(level: Level, mode: GameMode = 'solo'): GameSession {
+export function createSession(level: Level, mode: GameMode = 'solo', multiplayerMode: MultiplayerMode = 'teamwork'): GameSession {
+  const rule = mode === 'duo' ? multiplayerMode : 'teamwork'
   const runs: PlayerRun[] = [createRun('steve', level, level.spawn)]
-  if (mode === 'duo') runs.push(createRun('alex', level, alexSpawn(level)))
-  return { level, mode, runs, status: 'ready', time: 0, elapsed: 0 }
+  if (mode === 'duo') runs.push(createRun('alex', level, rule === 'pk' ? level.spawn : alexSpawn(level)))
+  return { level, mode, multiplayerMode: rule, result: null, runs, status: 'ready', time: 0, elapsed: 0 }
 }
 
 export function startSession(session: GameSession): void {
@@ -32,6 +33,7 @@ export function stepSession(session: GameSession, inputs: Partial<Record<Charact
 
 /** Retry the current route from each personal checkpoint, retaining the session clock. */
 export function retrySession(session: GameSession): void {
+  session.result = null
   for (const run of session.runs) respawn(session, run, session.time, session.elapsed)
   session.status = 'playing'
 }
@@ -66,6 +68,13 @@ function advanceSession(session: GameSession, inputs: Partial<Record<CharacterId
   session.elapsed = nextElapsed
   if (session.mode === 'solo' && session.runs[0]!.state.status === 'dead') {
     session.status = 'dead'
+  } else if (session.mode === 'duo' && session.multiplayerMode === 'pk') {
+    // Resolve after both runners have stepped: a shared finish tick is a tie.
+    const finishers = session.runs.filter(run => run.state.status === 'won')
+    if (finishers.length > 0) {
+      session.result = finishers.length > 1 ? 'draw' : finishers[0]!.id
+      session.status = 'won'
+    }
   } else if (session.runs.every(run => run.state.status === 'won')) {
     session.status = 'won'
   }
@@ -78,7 +87,7 @@ function activateCheckpoint(session: GameSession, run: PlayerRun): void {
   const feet = player.y + player.height
   const checkpoints = session.level.checkpoints ?? []
   for (const checkpoint of checkpoints) {
-    if (checkpoint.x <= (run.checkpoint?.x ?? -Infinity)) continue
+    if ((checkpoint.progress ?? checkpoint.x) <= (run.checkpoint?.progress ?? run.checkpoint?.x ?? -Infinity)) continue
     const nearX = Math.abs(player.x - checkpoint.x) <= (flying ? 0.8 : 0.65)
     const nearAltitude = Math.abs(feet - checkpoint.y) <= (flying ? 1 : 0.12)
     if (nearX && nearAltitude) {
@@ -88,7 +97,7 @@ function activateCheckpoint(session: GameSession, run: PlayerRun): void {
 }
 
 function respawn(session: GameSession, run: PlayerRun, time: number, elapsed: number): void {
-  const spawn = run.checkpoint ?? (run.id === 'alex' ? alexSpawn(session.level) : session.level.spawn)
+  const spawn = run.checkpoint ?? (run.id === 'alex' && session.multiplayerMode !== 'pk' ? alexSpawn(session.level) : session.level.spawn)
   const jumps = run.state.jumps
   const state = createGame({ ...session.level, spawn: { x: spawn.x, y: spawn.y } })
   state.time = time

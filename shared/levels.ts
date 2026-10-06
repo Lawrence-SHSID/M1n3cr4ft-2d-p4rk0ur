@@ -1,14 +1,60 @@
 import type { Block, BlockKind, Level } from './types'
+import { generateEndLevel } from './end-levels'
 
-type SurfaceKind = 'grass' | 'slime'
+type SurfaceKind = 'grass' | 'slime' | 'ice'
+
+function generateNetherLevel(number: number): Level {
+  const length = 10 + (number - 1) * 5
+  const width = 11 + (number - 11) % 3
+  const rows = 4 + Math.floor((number - 11) / 3)
+  const names = ['Ember steps', 'Ashen bridges', 'Fortress climb', 'Crimson ledges',
+    'Lava overlooks', 'Cinder stairway', 'Basalt crossings', 'High fortress', 'Ember summit']
+  const level: Level = {
+    number, length, width, layout: 'vertical', kind: 'parkour', theme: 'nether',
+    name: 'Nether: ' + names[number - 11],
+    subtitle: 'Zigzag upward: cross each ledge, then climb the ladder on the other side.',
+    spawn: { x: 0.8, y: 9 }, flag: { x: 1.4, y: 9 },
+    blocks: [], spikes: [], ladders: [], checkpoints: [],
+  }
+  const tile = (kind: BlockKind, x: number, y: number) => level.blocks.push({
+    id: 'level-' + number + '-block-' + level.blocks.length, kind, x, y, solid: true,
+  })
+  for (let x = 0; x < width; x++) for (let depth = 0; depth < 3; depth++) tile('netherrack', x, 9 + depth)
+  let y = 9
+  for (let row = 1; row <= rows; row++) {
+    const rise = 3.5 + ((number + row) % 2) * 0.5
+    const bottom = y
+    y -= rise
+    const fromRight = row % 2 === 1
+    const shaftX = fromRight ? width - 1 : 0
+    const startX = fromRight ? 0 : 1
+    const endX = fromRight ? width - 2 : width - 1
+    const gapWidth = number >= 17 && row % 2 === 0 ? 3 : 2
+    const gapStart = 3 + ((number + row) % (width - gapWidth - 5))
+    for (let x = startX; x <= endX; x++) {
+      if (x >= gapStart && x < gapStart + gapWidth) continue
+      // Thin ledges leave enough headroom to jump on the floor below.
+      tile(row % 2 === 0 || x === startX || x === endX ? 'nether-brick' : 'netherrack', x, y)
+    }
+    level.ladders!.push({
+      id: 'level-' + number + '-ladder-' + row, x: shaftX + 0.08, y, height: bottom - y, width: 0.84,
+    })
+    level.checkpoints!.push({
+      id: 'level-' + number + '-checkpoint-' + row,
+      x: fromRight ? width - 2.75 : 1.25, y, progress: row,
+    })
+  }
+  level.flag = { x: rows % 2 === 0 ? width - 1.65 : 1.4, y }
+  return level
+}
 
 function generateFlightLevel(number: number): Level {
   const length = 10 + (number - 1) * 5
   const ceiling = 1
   const floor = 10
   const level: Level = {
-    number, length, kind: 'elytra', flight: { ceiling, floor },
-    name: number === 10 ? 'Elytra: First glide' : number === 20 ? 'Elytra: Canyon weave' : `Elytra: Sky passage ${number / 10}`,
+    number, length, kind: 'elytra', theme: number === 20 ? 'nether' : 'overworld', flight: { ceiling, floor },
+    name: number === 10 ? 'Elytra: First glide' : number === 20 ? 'Nether: Ember flight' : `Elytra: Sky passage ${number / 10}`,
     subtitle: 'Fly forward. Hold Up or W to climb, release to descend, and hold Right or D to boost.',
     spawn: { x: 0.8, y: 6 }, flag: { x: length - 0.65, y: 6 },
     blocks: [], spikes: [], checkpoints: [],
@@ -16,7 +62,7 @@ function generateFlightLevel(number: number): Level {
   const gates: { x: number; end: number }[] = []
   const gate = (x: number, fromTop: boolean, boundary: number, width = 1.25) => {
     level.blocks.push({
-      id: `level-${number}-gate-${gates.length + 1}`, kind: 'stone', solid: true,
+      id: `level-${number}-gate-${gates.length + 1}`, kind: number === 20 ? 'nether-brick' : 'stone', solid: true,
       x, y: fromTop ? ceiling : boundary, width,
       height: fromTop ? boundary - ceiling : floor - boundary,
     })
@@ -72,9 +118,12 @@ export function generateLevel(number: number): Level {
   }
   if (number % 10 === 0) return generateFlightLevel(number)
 
+  if (number >= 11 && number <= 19) return generateNetherLevel(number)
+  if (number >= 21 && number <= 25) return generateEndLevel(number)
+
   const length = 10 + (number - 1) * 5
   const level: Level = {
-    number, length, kind: 'parkour', name: '', subtitle: '',
+    number, length, kind: 'parkour', theme: 'overworld', name: '', subtitle: '',
     spawn: { x: 0.8, y: 9 }, flag: { x: length - 0.65, y: 6 },
     blocks: [], spikes: [],
   }
@@ -90,6 +139,9 @@ export function generateLevel(number: number): Level {
   }
   const island = (start: number, width: number, y: number, depth = 1) => {
     for (let x = start; x < start + width; x++) tile(x, y, 'grass', depth)
+  }
+  const frozen = (start: number, width: number, y: number) => {
+    for (let x = start; x < start + width; x++) tile(x, y, 'ice')
   }
   const spring = (x: number, y: number) => {
     const surface = level.blocks.find(block => block.x === x && block.y === y && block.kind === 'grass')
@@ -204,6 +256,22 @@ export function generateLevel(number: number): Level {
       tree(1, 8.5)
       tree(21, 8.5)
       tree(27, 6.5)
+      break
+    case 7:
+      describe('Frostline crossing', 'Ice keeps you sliding. Crouch to brake, then jump between frozen islands.', 9, 7.5)
+      island(0, 4, 9, 2)
+      frozen(4, 5, 9)
+      island(11, 3, 9)
+      frozen(14, 5, 9)
+      island(21, 3, 9)
+      frozen(24, 4, 9)
+      island(30, 4, 9)
+      spring(33, 9)
+      island(36, 4, 7.5, 2)
+      elevator(10, 10, 1, 1, 0.75)
+      ferry(28.5, 10, 1, 1, 0.9)
+      tree(1, 9)
+      tree(38, 7.5)
       break
     default: {
       // A stable level-specific seed mixes variable-length motifs. In addition

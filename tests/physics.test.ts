@@ -19,7 +19,7 @@ function tick(state: GameState, seconds: number, input = idle): void {
   for (let index = 0; index < Math.round(seconds / step); index += 1) stepGame(state, input, step)
 }
 
-for (const [kind, height] of [['grass', 1], ['slime', 5]] as const) {
+for (const [kind, height] of [['grass', 1.2], ['ice', 1.2], ['slime', 5]] as const) {
   test(`${kind} jump rises ${height} blocks and returns to its platform`, () => {
     const state = running(level([ground(kind)]))
     const start = state.player.y
@@ -85,7 +85,7 @@ test('spike contact immediately ends the game', () => {
   assert.equal(state.deathReason, 'spike')
 })
 
-test('a one-block jump can clear the spike triangle', () => {
+test('a normal jump can clear the spike triangle', () => {
   const map = level(Array.from({ length: 5 }, (_, index) => ground('grass', index)))
   map.spikes = [{ x: 2, y: 8 }]
   const state = running(map)
@@ -180,7 +180,7 @@ test('elapsed time uses playing simulation time and invalid steps are ignored', 
   stepGame(state, idle, 0.1)
   assert.ok(Math.abs(state.time - 0.1) < 1e-7)
   assert.ok(Math.abs(state.elapsed - 0.1) < 1e-7)
-  assert.equal(PHYSICS.normalJumpHeight, 1)
+  assert.equal(PHYSICS.normalJumpHeight, 1.2)
   assert.equal(PHYSICS.slimeJumpHeight, 5)
 })
 
@@ -322,4 +322,64 @@ test('sneaking stays on a moving half slab while it carries the player', () => {
   assert.ok(state.player.x < position.x + 2)
   assert.ok(state.player.x > position.x + 1.99)
   assert.equal(state.player.y + state.player.height, 8)
+})
+
+for (const sprint of [false, true]) {
+  test('ice accelerates gradually and slides on release, sprint=' + sprint, () => {
+    const state = running(level([{ ...ground('ice'), width: 40 }]))
+    const maximum = sprint ? PHYSICS.sprintSpeed : PHYSICS.speed
+    stepGame(state, { ...idle, right: true, sprint }, step)
+    assert.ok(state.player.vx > 0 && state.player.vx < maximum)
+    tick(state, 1, { ...idle, right: true, sprint })
+    assert.equal(state.player.vx, maximum)
+    const startX = state.player.x
+    tick(state, 0.25)
+    assert.ok(state.player.x > startX + 0.5)
+    assert.ok(state.player.vx > 0 && state.player.vx < maximum)
+    tick(state, 2)
+    assert.equal(state.player.vx, 0)
+    assert.equal(state.player.grounded, true)
+  })
+}
+
+test('ice reverses gradually and crouch brakes while preserving safe edges', () => {
+  const state = running(level([{ ...ground('ice'), width: 8 }]))
+  tick(state, 0.5, { ...idle, right: true, sprint: true })
+  stepGame(state, { ...idle, left: true }, step)
+  assert.ok(state.player.vx > 0, 'opposite input first cancels momentum')
+  tick(state, 0.8, { ...idle, left: true })
+  assert.ok(state.player.vx < 0)
+  stepGame(state, { ...idle, right: true, sprint: true, sneak: true }, step)
+  assert.equal(state.player.vx, PHYSICS.sneakSpeed)
+  assert.equal(state.player.sprinting, false)
+  tick(state, 6, { ...idle, right: true, sneak: true })
+  assert.equal(state.player.grounded, true)
+  assert.ok(state.player.x < 8 && state.player.x > 7.99)
+  stepGame(state, { ...idle, sneak: true }, step)
+  assert.equal(state.player.vx, 0)
+})
+
+test('ice jumps carry momentum and grass landing restores grip', () => {
+  const state = running(level([{ ...ground('ice'), width: 5 }, { ...ground('grass', 7), width: 20 }]))
+  tick(state, 0.5, { ...idle, right: true, sprint: true })
+  state.player.x = 4.9
+  const velocity = state.player.vx
+  stepGame(state, { ...idle, jump: true }, step)
+  assert.equal(state.player.grounded, false)
+  tick(state, 0.2)
+  assert.equal(state.player.vx, velocity)
+  assert.equal(state.player.iceMomentum, true)
+  tick(state, 0.8)
+  assert.equal(state.player.groundKind, 'grass')
+  assert.equal(state.player.iceMomentum, false)
+  assert.equal(state.player.vx, 0)
+})
+
+test('ordinary surfaces stop immediately on release', () => {
+  const state = running(level([{ ...ground(), width: 20 }]))
+  tick(state, 0.5, { ...idle, right: true })
+  const x = state.player.x
+  tick(state, 0.25)
+  assert.equal(state.player.x, x)
+  assert.equal(state.player.vx, 0)
 })

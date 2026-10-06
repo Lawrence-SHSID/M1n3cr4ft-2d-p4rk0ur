@@ -137,3 +137,18 @@ test('the skyline circuit is completable with a sprint leap, timed ferry, and tw
   assert.ok(state.jumps >= 7)
   assert.ok(state.elapsed < 30)
 })
+
+test('the ice course is completable across sliding islands and the slime finish', () => {
+  const { state, groundKinds, to } = playCourse(7)
+  to(8.7)
+  to(11.5, true)
+  to(18.7)
+  to(21.5, true)
+  to(27.7)
+  to(30.5, true)
+  to(33.12)
+  to(39.05, true)
+  assert.equal(state.status, 'won')
+  assert.ok(groundKinds.has('ice') && groundKinds.has('slime'))
+  assert.ok(state.jumps >= 4)
+})
